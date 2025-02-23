@@ -38,4 +38,4 @@ For example, `core:clean` removes `build` folder only from the `core` project.
 
 2. git add -A && git commit -m "Your commit message"
 
-2. git push origin main
+3. git push origin main
