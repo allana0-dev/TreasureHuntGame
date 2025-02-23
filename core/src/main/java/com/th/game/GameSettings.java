@@ -7,5 +7,5 @@ public class GameSettings {
 
     public int treasureCount;
     public GameMode gameMode;
-    public float timerDuration; // only used in Timer Mode
+    public float timerDuration; // for Timer Mode
 }

@@ -65,9 +65,7 @@ public class GameScreen implements Screen {
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
 
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
-        // Draw maze walls
         maze.render(shapeRenderer);
-        // Draw treasures (if not collected)
         for (Treasure t : treasures) {
             if (!t.collected) {
                 shapeRenderer.setColor(Color.GOLD);
@@ -82,8 +80,7 @@ public class GameScreen implements Screen {
         shapeRenderer.circle(ai.position.x, ai.position.y, 15);
         shapeRenderer.end();
 
-        // (For simplicity, messages are printed to the console.
-        // In a real game you’d render text with a BitmapFont.)
+        // (For now, messages are printed to the console.
         System.out.println(message);
     }
 
@@ -97,7 +94,7 @@ public class GameScreen implements Screen {
             }
         }
 
-        // --- 1. Player Moves ---
+        // --- Player Moves ---
         Vector2 oldPos = new Vector2(player.position);
         if (Gdx.input.isKeyPressed(Input.Keys.LEFT)) {
             player.position.x -= player.speed * delta;
@@ -111,12 +108,12 @@ public class GameScreen implements Screen {
         if (Gdx.input.isKeyPressed(Input.Keys.DOWN)) {
             player.position.y -= player.speed * delta;
         }
-        // Prevent player from moving into walls.
+        // Prevent player from moving into obstacles.
         if (!maze.isWalkable(player.position)) {
             player.position.set(oldPos);
         }
 
-        // --- 2. AI Moves (every 30 seconds, smart decision-making) ---
+        //  AI Moves (randomly for no)
         if (TimeUtils.millis() - lastAIMoveTime > 30000) {
             Treasure hintTarget = getClosestTreasure(ai.position);
             if (hintTarget != null) {
@@ -130,7 +127,7 @@ public class GameScreen implements Screen {
         // AI continuously moves toward its target.
         ai.update(delta, maze);
 
-        // --- 6. Hint System (Every 15 seconds) ---
+        //  Hint System (Every 15 seconds)
         if (TimeUtils.millis() - lastHintTime > 15000 && !treasures.isEmpty()) {
             Treasure hint = treasures.get(random.nextInt(treasures.size()));
             message = "Hint: Treasure near (" + (int)hint.position.x + ", " + (int)hint.position.y + ")";
