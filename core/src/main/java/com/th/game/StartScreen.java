@@ -17,7 +17,7 @@ public class StartScreen implements Screen {
         stage = new Stage(new ScreenViewport());
         Gdx.input.setInputProcessor(stage);
         skin = new Skin(Gdx.files.internal("ui/uiskin.json"));
-
+System.out.println("Judee was here");
         Table table = new Table();
         table.setFillParent(true);
         stage.addActor(table);
@@ -70,6 +70,7 @@ public class StartScreen implements Screen {
             }
             return false;
         });
+
     }
 
     @Override public void show() { }
