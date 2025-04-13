@@ -2,9 +2,15 @@ package com.th.game;
 
 import com.badlogic.gdx.math.Vector2;
 
-public class Player extends GameCharacter {
-    public Player(Vector2 position) {
-        super(position, 200);
+public class Player {
+    public Vector2 position;
+    public float speed;
+    public int score;
+
+    public Player(Vector2 startPosition) {
+        this.position = startPosition;
+        this.speed = 200;
+        this.score = 0;
     }
 }
 

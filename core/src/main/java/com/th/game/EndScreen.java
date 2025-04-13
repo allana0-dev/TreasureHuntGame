@@ -12,30 +12,26 @@ public class EndScreen implements Screen {
     private Stage stage;
     private Skin skin;
 
-    public EndScreen(Main game, int playerScore, int aiScore, GameSettings settings) {
+    public EndScreen(Main game, int playerRoundsWon, int aiRoundsWon, GameSettings settings) {
         this.game = game;
         stage = new Stage(new ScreenViewport());
         Gdx.input.setInputProcessor(stage);
-        skin = new Skin(Gdx.files.internal("uiskin.json"));
+        skin = new Skin(Gdx.files.internal("ui/uiskin.json"));
 
         Table table = new Table();
         table.setFillParent(true);
         stage.addActor(table);
 
         String result;
-        if (settings.gameMode == GameSettings.GameMode.TIMER) {
-            if (playerScore > aiScore) result = "Player Wins!";
-            else if (aiScore > playerScore) result = "AI Wins!";
-            else result = "It's a Tie!";
-        } else {
-            result = (playerScore > aiScore) ? "Player Wins!" : "AI Wins!";
-        }
+        if (playerRoundsWon > aiRoundsWon) result = "Player is the Overall Champion!";
+        else if (aiRoundsWon > playerRoundsWon) result = "AI is the Overall Champion!";
+        else result = "The Match is a Tie!";
 
         table.add(new Label("Game Over", skin)).colspan(2).padBottom(20);
         table.row();
-        table.add(new Label("Player Score: " + playerScore, skin)).padBottom(10);
+        table.add(new Label("Player Rounds Won: " + playerRoundsWon, skin)).padBottom(10);
         table.row();
-        table.add(new Label("AI Score: " + aiScore, skin)).padBottom(10);
+        table.add(new Label("AI Rounds Won: " + aiRoundsWon, skin)).padBottom(10);
         table.row();
         table.add(new Label(result, skin)).colspan(2).padBottom(20);
         table.row();
@@ -65,10 +61,16 @@ public class EndScreen implements Screen {
         stage.act(delta);
         stage.draw();
     }
-    @Override public void resize(int width, int height) { stage.getViewport().update(width, height, true); }
+    @Override public void resize(int width, int height) {
+        stage.getViewport().update(width, height, true);
+    }
     @Override public void pause() { }
     @Override public void resume() { }
     @Override public void hide() { }
-    @Override public void dispose() { stage.dispose(); skin.dispose(); }
+    @Override public void dispose() {
+        stage.dispose();
+        skin.dispose();
+    }
 }
+
 
