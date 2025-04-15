@@ -42,6 +42,16 @@ public class GameScreen implements Screen {
     private BitmapFont font;
     private ShapeRenderer shapeRenderer;
 
+    // --- AI fields ---
+    private AIPlayer ai;
+    private Animation<TextureRegion> aiWalkDown;
+    private Animation<TextureRegion> aiWalkLeft;
+    private Animation<TextureRegion> aiWalkRight;
+    private Animation<TextureRegion> aiWalkUp;
+    private float aiStateTime = 0f;
+    private Direction aiDirection = Direction.DOWN;
+
+
     // --- Player fields ---
     private Player player;
     private Animation<TextureRegion> playerWalkDown;
@@ -133,8 +143,48 @@ public class GameScreen implements Screen {
         if (settings.gameMode == GameSettings.GameMode.TIMER) {
             roundTimer = settings.timerDuration;
         }
+        // --- Load AI Sprite Sheets ---
+// --- Load AI Sprite Sheets with Correct Column Order ---
+        Texture aiTexture = new Texture(Gdx.files.internal("ai.png"));
+        int aiCols = 4; // There are 4 columns representing directions.
+        int aiRows = 4; // Assume there are 4 rows (frames per animation).
 
-        // Initialize batch, font, and shapeRenderer.
+// Split the texture into a 2D array of regions.
+        TextureRegion[][] aiFrames = TextureRegion.split(aiTexture, aiTexture.getWidth() / aiCols, aiTexture.getHeight() / aiRows);
+
+// Create arrays to hold the frames for each direction.
+        TextureRegion[] aiWalkDownFrames = new TextureRegion[aiRows];
+        TextureRegion[] aiWalkLeftFrames = new TextureRegion[aiRows];
+        TextureRegion[] aiWalkUpFrames = new TextureRegion[aiRows];
+        TextureRegion[] aiWalkRightFrames = new TextureRegion[aiRows];
+
+// Extract each frame from the appropriate column for the four directions.
+        for (int row = 0; row < aiRows; row++) {
+            aiWalkDownFrames[row] = aiFrames[row][0];  // Column 0: walk down.
+            aiWalkLeftFrames[row] = aiFrames[row][1];    // Column 1: walk left.
+            aiWalkUpFrames[row] = aiFrames[row][2];      // Column 2: walk up.
+            aiWalkRightFrames[row] = aiFrames[row][3];     // Column 3: walk right.
+        }
+
+// Create animations using the extracted frames.
+        aiWalkDown = new Animation<>(0.15f, aiWalkDownFrames);
+        aiWalkLeft = new Animation<>(0.15f, aiWalkLeftFrames);
+        aiWalkUp = new Animation<>(0.15f, aiWalkUpFrames);
+        aiWalkRight = new Animation<>(0.15f, aiWalkRightFrames);
+
+// Set looping mode for smooth continuous animation.
+        aiWalkDown.setPlayMode(Animation.PlayMode.LOOP);
+        aiWalkLeft.setPlayMode(Animation.PlayMode.LOOP);
+        aiWalkUp.setPlayMode(Animation.PlayMode.LOOP);
+        aiWalkRight.setPlayMode(Animation.PlayMode.LOOP);
+
+
+        // --- Initialize AI Position ---
+        do {
+            ai = new AIPlayer(new Vector2(random.nextInt(mapPixelWidth), random.nextInt(mapPixelHeight)));
+        } while (!isWalkable(ai.position));
+
+        // --- Initialize batch, font, and shapeRenderer ---
         batch = new SpriteBatch();
         font = new BitmapFont();
         shapeRenderer = new ShapeRenderer();
@@ -190,17 +240,36 @@ public class GameScreen implements Screen {
         }
         batch.draw(playerFrame, player.position.x, player.position.y, 40, 50);
 
-        // Removed AI rendering.
+        // For now, we'll simply render the AI using its walking down animation (or update the direction as needed).
+        TextureRegion aiFrame;
+        switch (aiDirection) {
+            case LEFT:
+                aiFrame = aiWalkLeft.getKeyFrame(aiStateTime, true);
+                break;
+            case RIGHT:
+                aiFrame = aiWalkRight.getKeyFrame(aiStateTime, true);
+                break;
+            case UP:
+                aiFrame = aiWalkUp.getKeyFrame(aiStateTime, true);
+                break;
+            case DOWN:
+            default:
+                aiFrame = aiWalkDown.getKeyFrame(aiStateTime, true);
+                break;
+        }
+        // Adjust the rendering size as desired (here, using 64x64 as an example)
+        batch.draw(aiFrame, ai.position.x, ai.position.y, 64, 64);
 
         // --- Draw HUD ---
         font.draw(batch, "Player Score: " + player.score, camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 20);
-        // Removed AI Score display.
+        font.draw(batch, "AI Score: " + ai.score, camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 40);
+
         batch.end();
     }
 
     private void update(float delta) {
         playerStateTime += delta;
-        // Removed AI state updates.
+        aiStateTime += delta;  // Update AI's state time
 
         handlePlayerInput(delta);
         // Removed AI movement updates.
