@@ -12,14 +12,17 @@ import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.maps.MapLayer;
 import com.badlogic.gdx.maps.MapObject;
 import com.badlogic.gdx.maps.MapObjects;
+import com.badlogic.gdx.maps.objects.PolygonMapObject;
+import com.badlogic.gdx.maps.objects.EllipseMapObject;
+import com.badlogic.gdx.math.Rectangle;
+import com.badlogic.gdx.math.Polygon;
+import com.badlogic.gdx.math.Ellipse;
+import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.maps.objects.RectangleMapObject;
 import com.badlogic.gdx.maps.tiled.TmxMapLoader;
 import com.badlogic.gdx.maps.tiled.TiledMap;
 import com.badlogic.gdx.maps.tiled.renderers.OrthogonalTiledMapRenderer;
 import com.badlogic.gdx.math.MathUtils;
-import com.badlogic.gdx.math.Rectangle;
-import com.badlogic.gdx.math.Vector2;
-import com.badlogic.gdx.utils.TimeUtils;
 import org.encog.ml.data.basic.BasicMLDataSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -30,7 +33,6 @@ public class GameScreen implements Screen {
 
     private Main game;
     private GameSettings settings;
-    private AiBrain aiBrain;
 
     // Map & rendering objects.
     private TiledMap tiledMap;
@@ -49,15 +51,6 @@ public class GameScreen implements Screen {
     private float playerStateTime = 0f;
     private Direction playerDirection = Direction.DOWN;
 
-    // --- AI fields ---
-    private AIPlayer ai;
-    private Animation<TextureRegion> aiWalkDown;
-    private Animation<TextureRegion> aiWalkLeft;
-    private Animation<TextureRegion> aiWalkRight;
-    private Animation<TextureRegion> aiWalkUp;
-    private float aiStateTime = 0f;
-    private Direction aiDirection = Direction.DOWN;
-
     // --- Treasure chests ---
     private ArrayList<TreasureChest> treasureChests;
 
@@ -65,8 +58,6 @@ public class GameScreen implements Screen {
     private Random random;
     private int currentRound = 1;
     private float roundTimer;
-    private final long AIMOVE_INTERVAL = 2000;  // milliseconds.
-    private long lastAIMoveTime;
 
     // Simple direction enum.
     private enum Direction { UP, DOWN, LEFT, RIGHT }
@@ -75,7 +66,7 @@ public class GameScreen implements Screen {
     private int mapPixelWidth;
     private int mapPixelHeight;
 
-    // For grid-based exploration (used by AiBrain).
+    // For grid-based exploration (kept for possible future use).
     private final int CELL_SIZE = 64;
 
     public GameScreen(Main game, GameSettings settings) {
@@ -123,38 +114,10 @@ public class GameScreen implements Screen {
         playerWalkRight.setPlayMode(Animation.PlayMode.LOOP);
         playerWalkUp.setPlayMode(Animation.PlayMode.LOOP);
 
-        // AI sprites:
-        Texture aiTexture = new Texture(Gdx.files.internal("ai.png"));
-        int aiCols = 4, aiRows = 4;
-        int aiCellWidth = aiTexture.getWidth() / aiCols;
-        int aiCellHeight = aiTexture.getHeight() / aiRows;
-        TextureRegion[][] aiFrames = TextureRegion.split(aiTexture, aiCellWidth, aiCellHeight);
-        TextureRegion[] aiWalkDownFrames = new TextureRegion[aiRows];
-        TextureRegion[] aiWalkLeftFrames = new TextureRegion[aiRows];
-        TextureRegion[] aiWalkUpFrames = new TextureRegion[aiRows];
-        TextureRegion[] aiWalkRightFrames = new TextureRegion[aiRows];
-        for (int row = 0; row < aiRows; row++) {
-            aiWalkDownFrames[row] = aiFrames[row][0];
-            aiWalkLeftFrames[row] = aiFrames[row][1];
-            aiWalkUpFrames[row] = aiFrames[row][2];
-            aiWalkRightFrames[row] = aiFrames[row][3];
-        }
-        aiWalkDown = new Animation<>(0.15f, aiWalkDownFrames);
-        aiWalkLeft = new Animation<>(0.15f, aiWalkLeftFrames);
-        aiWalkUp = new Animation<>(0.15f, aiWalkUpFrames);
-        aiWalkRight = new Animation<>(0.15f, aiWalkRightFrames);
-        aiWalkDown.setPlayMode(Animation.PlayMode.LOOP);
-        aiWalkLeft.setPlayMode(Animation.PlayMode.LOOP);
-        aiWalkUp.setPlayMode(Animation.PlayMode.LOOP);
-        aiWalkRight.setPlayMode(Animation.PlayMode.LOOP);
-
-        // --- Initialize Player & AI positions in walkable areas ---
+        // --- Initialize Player position in a walkable area ---
         do {
             player = new Player(new Vector2(random.nextInt(mapPixelWidth), random.nextInt(mapPixelHeight)));
         } while (!isWalkable(player.position));
-        do {
-            ai = new AIPlayer(new Vector2(random.nextInt(mapPixelWidth), random.nextInt(mapPixelHeight)));
-        } while (!isWalkable(ai.position));
 
         // --- Create Treasure Chests ---
         treasureChests = new ArrayList<>();
@@ -162,7 +125,7 @@ public class GameScreen implements Screen {
             Vector2 pos;
             do {
                 pos = new Vector2(random.nextInt(mapPixelWidth), random.nextInt(mapPixelHeight));
-            } while (!isWalkable(pos) || pos.dst(player.position) < 50 || pos.dst(ai.position) < 50);
+            } while (!isWalkable(pos) || pos.dst(player.position) < 50);
             treasureChests.add(new TreasureChest(pos, 8, 0.1f));
         }
 
@@ -170,20 +133,13 @@ public class GameScreen implements Screen {
         if (settings.gameMode == GameSettings.GameMode.TIMER) {
             roundTimer = settings.timerDuration;
         }
-        lastAIMoveTime = TimeUtils.millis();
 
         // Initialize batch, font, and shapeRenderer.
         batch = new SpriteBatch();
         font = new BitmapFont();
         shapeRenderer = new ShapeRenderer();
 
-        // Initialize visited grid info if needed here (optional)
-        // (Visit count logic has been moved into AiBrain now.)
-
-        // --- Now that map dimensions are available, initialize AiBrain ---
-        aiBrain = new AiBrain();
-        aiBrain.initMovement(ai, mapPixelWidth, mapPixelHeight, CELL_SIZE, pos -> isWalkable(pos));
-        aiBrain.setTreasureChests(treasureChests);
+        // Removed AI initialization.
     }
 
     @Override
@@ -204,9 +160,7 @@ public class GameScreen implements Screen {
         float hintThreshold = 150f;
         for (TreasureChest chest : treasureChests) {
             if (chest.state == TreasureChest.ChestState.CLOSED) {
-                float distPlayer = player.position.dst(chest.position);
-                float distAI = ai.position.dst(chest.position);
-                float dist = Math.min(distPlayer, distAI);
+                float dist = player.position.dst(chest.position);
                 if (dist < hintThreshold) {
                     float alpha = 1f - (dist / hintThreshold);
                     chest.render(batch, alpha);
@@ -236,52 +190,20 @@ public class GameScreen implements Screen {
         }
         batch.draw(playerFrame, player.position.x, player.position.y, 40, 50);
 
-        // --- Render the AI ---
-        // Retrieve the current move from AiBrain.
-        int move = aiBrain.getCurrentMove();
-        TextureRegion aiFrame;
-        switch (move) {
-            case 0:
-                // Move UP: use the AI sprite for walking up.
-                aiFrame = aiWalkUp.getKeyFrame(aiStateTime, true);
-                break;
-            case 1:
-                // Move DOWN: use the AI sprite for walking down.
-                aiFrame = aiWalkDown.getKeyFrame(aiStateTime, true);
-                break;
-            case 2:
-                // Move LEFT: use the AI sprite for walking left.
-                aiFrame = aiWalkLeft.getKeyFrame(aiStateTime, true);
-                break;
-            case 3:
-            default:
-                // Move RIGHT: use the AI sprite for walking right.
-                aiFrame = aiWalkRight.getKeyFrame(aiStateTime, true);
-                break;
-        }
-        batch.draw(aiFrame, ai.position.x, ai.position.y, 64, 64);
+        // Removed AI rendering.
 
         // --- Draw HUD ---
         font.draw(batch, "Player Score: " + player.score, camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 20);
-        font.draw(batch, "AI Score: " + ai.score, camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 40);
+        // Removed AI Score display.
         batch.end();
     }
 
     private void update(float delta) {
         playerStateTime += delta;
-        aiStateTime += delta;
+        // Removed AI state updates.
 
         handlePlayerInput(delta);
-        aiBrain.setPlayerPosition(player.position);
-
-        // Delegate all AI movement logic to AiBrain.
-        aiBrain.updateMovement(delta);
-        if (player.score > ai.score) {
-            ai.speed = 250; // Reactively increase AI speed
-        } else {
-            ai.speed = 150; // Reset to default
-        }
-
+        // Removed AI movement updates.
 
         for (TreasureChest chest : treasureChests) {
             chest.update(delta);
@@ -359,37 +281,26 @@ public class GameScreen implements Screen {
             }
         }
 
-        for (TreasureChest chest : treasureChests) {
-            if (chest.state == TreasureChest.ChestState.CLOSED &&
-                ai.position.dst(chest.position) < 32f) {
-                chest.open();
-                ai.score++;
-            }
-        }
+        // Removed AI chest-picking logic.
 
-        if (player.score > settings.treasureCount / 2 ||
-            ai.score > settings.treasureCount / 2 ||
-            allOpen) {
+        if (player.score > settings.treasureCount / 2 || allOpen) {
             endRound();
         }
     }
 
     private void endRound() {
         // Determine round winner.
-        if (player.score > ai.score) {
-            settings.playerRoundsWon++;
-        } else if (ai.score > player.score) {
-            settings.aiRoundsWon++;
-        }
-        System.out.println("Round " + currentRound + " ended. Player Score: " + player.score + ", AI Score: " + ai.score);
+        // With AI removed, we simply count any round as a win for the player.
+        settings.playerRoundsWon++;
+        System.out.println("Round " + currentRound + " ended. Player Score: " + player.score);
 
         // ---------- Save a Training Sample ----------
-        // Find nearest treasure chest for training context
+        // Find the nearest treasure chest for training context using the player's position.
         Vector2 nearest = null;
         float minDist = Float.MAX_VALUE;
         for (TreasureChest chest : treasureChests) {
             if (chest.state == TreasureChest.ChestState.CLOSED) {
-                float dist = ai.position.dst(chest.position);
+                float dist = player.position.dst(chest.position);
                 if (dist < minDist) {
                     minDist = dist;
                     nearest = chest.position;
@@ -398,13 +309,12 @@ public class GameScreen implements Screen {
         }
         if (nearest == null) nearest = new Vector2(400, 300); // fallback
 
-        Vector2 toTreasure = nearest.cpy().sub(ai.position).nor();
+        Vector2 toTreasure = nearest.cpy().sub(player.position).nor();
         int bestMove = -1;
         if (nearest != null) {
-            Vector2 diff = nearest.cpy().sub(ai.position);
+            Vector2 diff = nearest.cpy().sub(player.position);
             float dx = diff.x;
             float dy = diff.y;
-
             // Simple heuristic for best move
             if (Math.abs(dx) > Math.abs(dy)) {
                 bestMove = (dx > 0) ? 3 : 2; // RIGHT or LEFT
@@ -413,7 +323,7 @@ public class GameScreen implements Screen {
             }
         }
 
-// Create one-hot encoded output
+        // Create one-hot encoded output
         double[] labels = new double[]{0, 0, 0, 0};
         if (bestMove >= 0) {
             labels[bestMove] = 1.0;
@@ -423,8 +333,9 @@ public class GameScreen implements Screen {
             // Normalize all values between 0-1
             player.position.x / mapPixelWidth,
             player.position.y / mapPixelHeight,
-            ai.position.x / mapPixelWidth,
-            ai.position.y / mapPixelHeight,
+            // Since AI is removed, we use the player's position as a placeholder.
+            player.position.x / mapPixelWidth,
+            player.position.y / mapPixelHeight,
             nearest.x / mapPixelWidth,
             nearest.y / mapPixelHeight,
             toTreasure.x,
@@ -450,9 +361,9 @@ public class GameScreen implements Screen {
                     idealOutput[i] = samples.get(i).getLabels();
                 }
                 org.encog.ml.data.MLDataSet trainingSet = new BasicMLDataSet(inputData, idealOutput);
-                aiBrain.trainModel(trainingSet);
+                // The training call is kept here for your training samples.
+                // For example, if you add a future method to handle training, it can be called here.
                 System.out.println("Trained model on " + samples.size() + " samples.");
-
             } else {
                 System.out.println("No training samples available for training.");
             }
@@ -465,13 +376,13 @@ public class GameScreen implements Screen {
             currentRound++;
             resetRound();
         } else {
-            game.setScreen(new EndScreen(game, settings.playerRoundsWon, settings.aiRoundsWon, settings));
+            // Since AI is removed, pass 0 for AI rounds won.
+            game.setScreen(new EndScreen(game, settings.playerRoundsWon, 0, settings));
         }
     }
 
     private void resetRound() {
         player.score = 0;
-        ai.score = 0;
         int mapTileWidth = tiledMap.getProperties().get("width", Integer.class);
         int mapTileHeight = tiledMap.getProperties().get("height", Integer.class);
         int tilePixelWidth = tiledMap.getProperties().get("tilewidth", Integer.class);
@@ -481,24 +392,26 @@ public class GameScreen implements Screen {
         do {
             player.position.set(random.nextInt(mapPixelWidth), random.nextInt(mapPixelHeight));
         } while (!isWalkable(player.position));
-        do {
-            ai.position.set(random.nextInt(mapPixelWidth), random.nextInt(mapPixelHeight));
-        } while (!isWalkable(ai.position));
+        // Removed AI repositioning.
         treasureChests.clear();
+        // Define an edge buffer so that treasures aren't spawned too close to the map boundaries.
+        int treasureEdgeBuffer = 50; // You can adjust this value as needed.
         for (int i = 0; i < settings.treasureCount; i++) {
             Vector2 pos;
             do {
-                pos = new Vector2(random.nextInt(mapPixelWidth), random.nextInt(mapPixelHeight));
-            } while (!isWalkable(pos) ||
-                pos.dst(player.position) < 50 ||
-                pos.dst(ai.position) < 50);
+                // Choose a random position within the safe area.
+                pos = new Vector2(
+                    random.nextInt(mapPixelWidth - 2 * treasureEdgeBuffer) + treasureEdgeBuffer,
+                    random.nextInt(mapPixelHeight - 2 * treasureEdgeBuffer) + treasureEdgeBuffer
+                );
+            } while (!isWalkable(pos) || pos.dst(player.position) < 50);
             treasureChests.add(new TreasureChest(pos, 8, 0.1f));
         }
+
         if (settings.gameMode == GameSettings.GameMode.TIMER) {
             roundTimer = settings.timerDuration;
         }
     }
-
 
     private boolean isWalkable(Vector2 pos) {
         MapLayer collisionLayer = tiledMap.getLayers().get("Collision");
@@ -507,12 +420,28 @@ public class GameScreen implements Screen {
         }
         MapObjects objects = collisionLayer.getObjects();
         for (MapObject object : objects) {
+            // Check for rectangular objects.
             if (object instanceof RectangleMapObject) {
                 Rectangle rect = ((RectangleMapObject) object).getRectangle();
                 if (rect.contains(pos.x, pos.y)) {
                     return false;
                 }
             }
+            // Check for polygon objects.
+            else if (object instanceof PolygonMapObject) {
+                Polygon polygon = ((PolygonMapObject) object).getPolygon();
+                if (polygon.contains(pos.x, pos.y)) {
+                    return false;
+                }
+            }
+            // Check for ellipse objects.
+            else if (object instanceof EllipseMapObject) {
+                Ellipse ellipse = ((EllipseMapObject) object).getEllipse();
+                if (ellipse.contains(pos.x, pos.y)) {
+                    return false;
+                }
+            }
+            // If needed, you can add more shape checks (e.g., PolylineMapObject) here.
         }
         return true;
     }
@@ -540,3 +469,4 @@ public class GameScreen implements Screen {
         }
     }
 }
+
