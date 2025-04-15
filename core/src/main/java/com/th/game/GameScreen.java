@@ -14,6 +14,7 @@ import com.badlogic.gdx.maps.MapObject;
 import com.badlogic.gdx.maps.MapObjects;
 import com.badlogic.gdx.maps.objects.PolygonMapObject;
 import com.badlogic.gdx.maps.objects.EllipseMapObject;
+import com.badlogic.gdx.maps.tiled.TiledMapTileLayer;
 import com.badlogic.gdx.math.Rectangle;
 import com.badlogic.gdx.math.Polygon;
 import com.badlogic.gdx.math.Ellipse;
@@ -41,6 +42,9 @@ public class GameScreen implements Screen {
     private SpriteBatch batch;
     private BitmapFont font;
     private ShapeRenderer shapeRenderer;
+    private int tileWidth;
+    private int tileHeight;
+
 
     // --- AI fields ---
     private AIPlayer ai;
@@ -50,6 +54,10 @@ public class GameScreen implements Screen {
     private Animation<TextureRegion> aiWalkUp;
     private float aiStateTime = 0f;
     private Direction aiDirection = Direction.DOWN;
+    private float aiMoveTimer = 0f;
+    private final float aiMoveInterval = 0.5f; // Change direction every 0.5 seconds.
+    private Direction aiCurrentDirection = Direction.DOWN; // Use your existing Direction enum.
+
 
 
     // --- Player fields ---
@@ -111,6 +119,10 @@ public class GameScreen implements Screen {
         int mapTileHeight = tiledMap.getProperties().get("height", Integer.class);
         int tilePixelWidth = tiledMap.getProperties().get("tilewidth", Integer.class);
         int tilePixelHeight = tiledMap.getProperties().get("tileheight", Integer.class);
+        // Calculate tile dimensions.
+        tileWidth = tiledMap.getProperties().get("tilewidth", Integer.class);
+        tileHeight = tiledMap.getProperties().get("tileheight", Integer.class);
+
         mapPixelWidth = mapTileWidth * tilePixelWidth;
         mapPixelHeight = mapTileHeight * tilePixelHeight;
 
@@ -282,7 +294,10 @@ public class GameScreen implements Screen {
         playerStateTime += delta;
         aiStateTime += delta;  // Update AI's state time
 
+
         handlePlayerInput(delta);
+        updateAI(delta);  // Add the AI update call here.
+
         // Removed AI movement updates.
 
         for (TreasureChest chest : treasureChests) {
@@ -312,6 +327,88 @@ public class GameScreen implements Screen {
         camera.position.set(mapPixelWidth / 2f, mapPixelHeight / 2f, 0);
         camera.update();
     }
+
+    private boolean isWalkableArea(Vector2 pos) {
+        // --- 1. Tile-Based Check ---
+
+        // First, check if the position is on one of your allowed layers.
+        // Adjust these names as needed.
+        String[] allowedLayers = {"Green Patch", "Grass", "Path"};
+        boolean allowedTile = false;
+        for (String layerName : allowedLayers) {
+            MapLayer layerRaw = tiledMap.getLayers().get(layerName);
+            if (layerRaw instanceof TiledMapTileLayer) {
+                TiledMapTileLayer layer = (TiledMapTileLayer) layerRaw;
+                int tileX = (int)(pos.x / tileWidth);
+                int tileY = (int)(pos.y / tileHeight);
+                TiledMapTileLayer.Cell cell = layer.getCell(tileX, tileY);
+                if (cell != null && cell.getTile() != null && cell.getTile().getId() != 0) {
+                    allowedTile = true;
+                    // Debug output (optional)
+                    // System.out.println("Allowed by layer: " + layerName);
+                    break;
+                }
+            }
+        }
+        if (!allowedTile) {
+            // System.out.println("Not allowed by any allowed layer");
+            return false;
+        }
+
+        // Next, check that none of the collidable tile layers block this cell.
+        String[] collidableLayers = {"corn/rocks", "Trees", "Fruits"};
+        for (String layerName : collidableLayers) {
+            MapLayer layerRaw = tiledMap.getLayers().get(layerName);
+            if (layerRaw instanceof TiledMapTileLayer) {
+                TiledMapTileLayer layer = (TiledMapTileLayer) layerRaw;
+                int tileX = (int)(pos.x / tileWidth);
+                int tileY = (int)(pos.y / tileHeight);
+                TiledMapTileLayer.Cell cell = layer.getCell(tileX, tileY);
+                if (cell != null && cell.getTile() != null && cell.getTile().getId() != 0) {
+                    // System.out.println("Blocked by collidable layer: " + layerName);
+                    return false;
+                }
+            }
+        }
+
+        // --- 2. Object-Based Collision Check ---
+        MapLayer collisionLayer = tiledMap.getLayers().get("Collision");
+        if (collisionLayer != null) {
+            MapObjects objects = collisionLayer.getObjects();
+            for (MapObject object : objects) {
+                // Check for rectangular objects.
+                if (object instanceof RectangleMapObject) {
+                    Rectangle rect = ((RectangleMapObject) object).getRectangle();
+                    if (rect.contains(pos.x, pos.y)) {
+                        // System.out.println("Blocked by a rectangle collision object");
+                        return false;
+                    }
+                }
+                // Check for polygon objects.
+                else if (object instanceof PolygonMapObject) {
+                    Polygon polygon = ((PolygonMapObject) object).getPolygon();
+                    if (polygon.contains(pos.x, pos.y)) {
+                        // System.out.println("Blocked by a polygon collision object");
+                        return false;
+                    }
+                }
+                // Check for ellipse objects.
+                else if (object instanceof EllipseMapObject) {
+                    Ellipse ellipse = ((EllipseMapObject) object).getEllipse();
+                    if (ellipse.contains(pos.x, pos.y)) {
+                        // System.out.println("Blocked by an ellipse collision object");
+                        return false;
+                    }
+                }
+                // Extend with additional shape checks if needed.
+            }
+        }
+
+        // If no blocking tiles or objects, the position is walkable.
+        return true;
+    }
+
+
 
     // Handle player input
     private void handlePlayerInput(float delta) {
@@ -351,6 +448,69 @@ public class GameScreen implements Screen {
             }
         }
     }
+
+    private void updateAI(float delta) {
+        aiMoveTimer += delta;
+        if (aiMoveTimer >= aiMoveInterval) {
+            // Pick a random new direction.
+            int randomInt = random.nextInt(4); // 0 to 3 (UP, DOWN, LEFT, RIGHT)
+            // Map the random integer to a Direction.
+            switch (randomInt) {
+                case 0:
+                    aiCurrentDirection = Direction.UP;
+                    break;
+                case 1:
+                    aiCurrentDirection = Direction.DOWN;
+                    break;
+                case 2:
+                    aiCurrentDirection = Direction.LEFT;
+                    break;
+                case 3:
+                    aiCurrentDirection = Direction.RIGHT;
+                    break;
+            }
+            aiMoveTimer = 0f;
+        }
+
+        // Save the old position in case we need to roll back.
+        Vector2 oldPosition = new Vector2(ai.position);
+
+
+        // Move the AI in the current direction (assumes ai.speed exists).
+        switch (aiCurrentDirection) {
+            case LEFT:
+                ai.position.x -= ai.speed * delta;
+                break;
+            case RIGHT:
+                ai.position.x += ai.speed * delta;
+                break;
+            case UP:
+                ai.position.y += ai.speed * delta;
+                break;
+            case DOWN:
+                ai.position.y -= ai.speed * delta;
+                break;
+        }
+
+        // Check if the new position is on a walkable tile.
+        if (!isWalkableArea(ai.position)) {
+            ai.position.set(oldPosition);
+        }
+
+
+        // Have the AI collect treasures as it moves over them.
+        for (TreasureChest chest : treasureChests) {
+            if (chest.state == TreasureChest.ChestState.CLOSED &&
+                ai.position.dst(chest.position) < 32) { // adjust the threshold as needed.
+                chest.open();
+                ai.score++; // Assuming the AI has a score field.
+            }
+        }
+
+        // Update aiDirection used for rendering animations.
+        aiDirection = aiCurrentDirection;
+    }
+
 
     private void checkRoundEnd() {
         boolean allOpen = true;
