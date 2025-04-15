@@ -76,9 +76,6 @@ public class GameScreen implements Screen {
     private int mapPixelWidth;
     private int mapPixelHeight;
 
-    // For grid-based exploration (kept for possible future use).
-    private final int CELL_SIZE = 64;
-
     public GameScreen(Main game, GameSettings settings) {
         this.game = game;
         this.settings = settings;
@@ -92,7 +89,21 @@ public class GameScreen implements Screen {
         }
 
         // --- Load Tile Map ---
-        tiledMap = new TmxMapLoader().load("maps/map1.tmx");
+
+        // --- Determine which map to load ---
+        MapManager.MapInfo selectedMap;
+        if (settings.mapType == GameSettings.MapType.RANDOM) {
+            selectedMap = MapManager.getRandomMap();
+            System.out.println("Randomly selected map: " + selectedMap.getName());
+        } else {
+            selectedMap = MapManager.getMapByName(
+                settings.selectedMapName != null ? settings.selectedMapName : "Map 1"
+            );
+            System.out.println("Stored map selected: " + selectedMap.getName());
+        }
+
+        // --- Load Tile Map ---
+        tiledMap = new TmxMapLoader().load(selectedMap.getPath());
         mapRenderer = new OrthogonalTiledMapRenderer(tiledMap);
 
         // Calculate the full map dimensions in pixels.
@@ -464,11 +475,10 @@ public class GameScreen implements Screen {
         // Removed AI repositioning.
         treasureChests.clear();
         // Define an edge buffer so that treasures aren't spawned too close to the map boundaries.
-        int treasureEdgeBuffer = 50; // You can adjust this value as needed.
+        int treasureEdgeBuffer = 50; // Pixels buffer from the edge.
         for (int i = 0; i < settings.treasureCount; i++) {
             Vector2 pos;
             do {
-                // Choose a random position within the safe area.
                 pos = new Vector2(
                     random.nextInt(mapPixelWidth - 2 * treasureEdgeBuffer) + treasureEdgeBuffer,
                     random.nextInt(mapPixelHeight - 2 * treasureEdgeBuffer) + treasureEdgeBuffer
@@ -538,4 +548,3 @@ public class GameScreen implements Screen {
         }
     }
 }
-

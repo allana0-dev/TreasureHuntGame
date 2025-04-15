@@ -2,8 +2,10 @@ package com.th.game;
 
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Screen;
+import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.Stage;
 import com.badlogic.gdx.scenes.scene2d.ui.*;
+import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
 import com.badlogic.gdx.utils.viewport.ScreenViewport;
 
 public class StartScreen implements Screen {
@@ -40,46 +42,85 @@ public class StartScreen implements Screen {
         table.add(treasureSelect).padBottom(10);
         table.row();
 
-        // Timer duration selection (enter 0 or negative for no timer / First-to-Half mode)
+        // Timer duration selection (enter 0 for no timer / First-to-Half mode)
         table.add(new Label("Timer Duration in seconds (0 for no timer):", skin));
         TextField timerField = new TextField("60", skin);
         table.add(timerField).padBottom(10);
         table.row();
 
-        // Map choice: Stored or Random
-        table.add(new Label("Choose Map:", skin));
-        SelectBox<String> mapSelect = new SelectBox<>(skin);
-        mapSelect.setItems("Stored", "Random");
-        table.add(mapSelect).padBottom(10);
+        // Map type: Stored or Random
+        table.add(new Label("Map Type:", skin));
+        final SelectBox<String> mapTypeSelect = new SelectBox<>(skin);
+        mapTypeSelect.setItems("Stored", "Random");
+        table.add(mapTypeSelect).padBottom(10);
         table.row();
 
-        // Game mode (for simplicity, we deduce mode from timer: if timer > 0 then Timer mode)
-        // But you can add an extra choice if desired.
+        // Label and SelectBox for choosing a specific stored map (only visible if "Stored" is chosen)
+        final Label storedMapLabel = new Label("Select Stored Map:", skin);
+        final SelectBox<String> storedMapSelect = new SelectBox<>(skin);
+        storedMapSelect.setItems(MapManager.getMapNames().toArray(new String[0]));
+        // Set initial visibility based on the default selection.
+        if (mapTypeSelect.getSelected().equals("Stored")) {
+            storedMapLabel.setVisible(true);
+            storedMapSelect.setVisible(true);
+        } else {
+            storedMapLabel.setVisible(false);
+            storedMapSelect.setVisible(false);
+        }
+        table.add(storedMapLabel).colspan(2).padBottom(5);
+        table.row();
+        table.add(storedMapSelect).colspan(2).padBottom(10);
+        table.row();
+
         // Start button
         TextButton startButton = new TextButton("Start Game", skin);
         table.add(startButton).colspan(2).padTop(20);
 
-        startButton.addListener(event -> {
-            if (startButton.isPressed()) {
-                GameSettings settings = new GameSettings();
-                settings.totalRounds = roundsSelect.getSelected();
-                settings.treasureCount = treasureSelect.getSelected();
-                try {
-                    settings.timerDuration = Float.parseFloat(timerField.getText());
-                } catch (NumberFormatException e) {
-                    settings.timerDuration = 60;
+        // Add a listener to the mapTypeSelect to show/hide stored map selection based on user choice.
+        mapTypeSelect.addListener(new ChangeListener() {
+            @Override
+            public void changed(ChangeEvent event, Actor actor) {
+                if (mapTypeSelect.getSelected().equals("Stored")) {
+                    storedMapLabel.setVisible(true);
+                    storedMapSelect.setVisible(true);
+                } else {
+                    storedMapLabel.setVisible(false);
+                    storedMapSelect.setVisible(false);
                 }
-                settings.gameMode = (settings.timerDuration > 0) ? GameSettings.GameMode.TIMER : GameSettings.GameMode.FIRST_TO_HALF;
-                String mapChoice = mapSelect.getSelected();
-                settings.mapType = mapChoice.equals("Stored") ? GameSettings.MapType.STORED : GameSettings.MapType.RANDOM;
-
-                // Initialize overall round win counts
-                settings.playerRoundsWon = 0;
-                settings.aiRoundsWon = 0;
-
-                game.setScreen(new GameScreen(game, settings));
             }
-            return false;
+        });
+
+        // Start button listener
+        startButton.addListener(new ChangeListener() {
+            @Override
+            public void changed(ChangeEvent event, Actor actor) {
+                if (startButton.isPressed()) {
+                    GameSettings settings = new GameSettings();
+                    settings.totalRounds = roundsSelect.getSelected();
+                    settings.treasureCount = treasureSelect.getSelected();
+                    try {
+                        settings.timerDuration = Float.parseFloat(timerField.getText());
+                    } catch (NumberFormatException e) {
+                        settings.timerDuration = 60;
+                    }
+                    settings.gameMode = (settings.timerDuration > 0) ?
+                        GameSettings.GameMode.TIMER : GameSettings.GameMode.FIRST_TO_HALF;
+
+                    // Set map type and, if stored, the selected map name.
+                    if (mapTypeSelect.getSelected().equals("Random")) {
+                        settings.mapType = GameSettings.MapType.RANDOM;
+                    } else {
+                        settings.mapType = GameSettings.MapType.STORED;
+                        settings.selectedMapName = storedMapSelect.getSelected();
+                    }
+
+                    // Initialize round win counts.
+                    settings.playerRoundsWon = 0;
+                    settings.aiRoundsWon = 0;
+
+                    game.setScreen(new GameScreen(game, settings));
+                }
+            }
         });
     }
 
@@ -99,4 +140,5 @@ public class StartScreen implements Screen {
         skin.dispose();
     }
 }
+
 
