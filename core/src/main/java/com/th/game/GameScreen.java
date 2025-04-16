@@ -34,6 +34,8 @@ public class GameScreen implements Screen {
 
     private Main game;
     private GameSettings settings;
+    private String currentMapName;
+
 
     // Map & rendering objects.
     private TiledMap tiledMap;
@@ -44,10 +46,12 @@ public class GameScreen implements Screen {
     private ShapeRenderer shapeRenderer;
     private int tileWidth;
     private int tileHeight;
+    private float countdownTimer; // remaining time in seconds
 
 
     // --- AI fields ---
     private AIPlayer ai;
+    private SmartAI aiManager;  // Use SmartAI instead of AIPlayer
     private Animation<TextureRegion> aiWalkDown;
     private Animation<TextureRegion> aiWalkLeft;
     private Animation<TextureRegion> aiWalkRight;
@@ -78,7 +82,6 @@ public class GameScreen implements Screen {
     private float roundTimer;
 
     // Simple direction enum.
-    private enum Direction { UP, DOWN, LEFT, RIGHT }
 
     // Cached map dimensions.
     private int mapPixelWidth;
@@ -88,6 +91,10 @@ public class GameScreen implements Screen {
         this.game = game;
         this.settings = settings;
         random = new Random();
+
+        if (settings.gameMode == GameSettings.GameMode.TIMER) {
+            resetTimer();
+        }
 
         // Initialize the training data database.
         try {
@@ -99,19 +106,32 @@ public class GameScreen implements Screen {
         // --- Load Tile Map ---
 
         // --- Determine which map to load ---
-        MapManager.MapInfo selectedMap;
+        // Store the selected map name
+// --- Determine which map to load ---
+        MapManager.MapInfo selectedMap = null;
         if (settings.mapType == GameSettings.MapType.RANDOM) {
             selectedMap = MapManager.getRandomMap();
+            currentMapName = selectedMap.getName();
             System.out.println("Randomly selected map: " + selectedMap.getName());
         } else {
-            selectedMap = MapManager.getMapByName(
-                settings.selectedMapName != null ? settings.selectedMapName : "Map 1"
-            );
-            System.out.println("Stored map selected: " + selectedMap.getName());
+            // Need to set selectedMap for STORED maps too
+            currentMapName = settings.selectedMapName != null ? settings.selectedMapName : "Map 1";
+            selectedMap = MapManager.getMapByName(currentMapName);
+            System.out.println("Stored map selected: " + currentMapName);
         }
 
-        // --- Load Tile Map ---
+// Check if map was found
+        if (selectedMap == null) {
+            // Fallback to the first map if the requested map wasn't found
+            selectedMap = MapManager.getRandomMap();
+            currentMapName = selectedMap.getName();
+            System.out.println("WARNING: Requested map not found. Using fallback map: " + currentMapName);
+        }
+
+// --- Load Tile Map ---
         tiledMap = new TmxMapLoader().load(selectedMap.getPath());
+
+        // --- Load Tile Map ---
         mapRenderer = new OrthogonalTiledMapRenderer(tiledMap);
 
         // Calculate the full map dimensions in pixels.
@@ -151,6 +171,17 @@ public class GameScreen implements Screen {
         do {
             player = new Player(new Vector2(random.nextInt(mapPixelWidth), random.nextInt(mapPixelHeight)));
         } while (!isWalkable(player.position));
+
+        do {
+            ai = new SmartAI(new Vector2(random.nextInt(mapPixelWidth), random.nextInt(mapPixelHeight)), currentMapName);
+        } while (!isWalkable(ai.position));
+
+        SmartAI smartAI = (SmartAI) ai;
+        smartAI.setMapDimensions(mapPixelWidth, mapPixelHeight);
+
+        smartAI.setWalkableFunction(this::isWalkable);
+
+
 
         // --- Create Treasure Chests ---
         treasureChests = new ArrayList<>();
@@ -202,10 +233,6 @@ public class GameScreen implements Screen {
         aiWalkRight.setPlayMode(Animation.PlayMode.LOOP);
 
 
-        // --- Initialize AI Position ---
-        do {
-            ai = new AIPlayer(new Vector2(random.nextInt(mapPixelWidth), random.nextInt(mapPixelHeight)));
-        } while (!isWalkable(ai.position));
 
         // --- Initialize batch, font, and shapeRenderer ---
         batch = new SpriteBatch();
@@ -215,17 +242,36 @@ public class GameScreen implements Screen {
         // Removed AI initialization.
     }
 
+    // Resets the countdown timer to the initial value from game settings.
+    private void resetTimer() {
+        this.countdownTimer = settings.timerDuration;
+    }
+
     @Override
     public void render(float delta) {
+        // Update countdown timer only when in TIMER mode.
+        if (settings.gameMode == GameSettings.GameMode.TIMER) {
+            countdownTimer -= delta;
+            if (countdownTimer <= 0) {
+                countdownTimer = 0;
+                // Handle end of the round when time runs out.
+                endRound();
+            }
+        }
+
+        // Update game logic (e.g., player movement, AI behavior, collision detection, etc.)
         update(delta);
 
+        // Clear the screen.
         Gdx.gl.glClearColor(0, 0, 0.2f, 1);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
 
+        // Update the camera and render the map.
         camera.update();
         mapRenderer.setView(camera);
         mapRenderer.render();
 
+        // Begin sprite batch rendering.
         batch.setProjectionMatrix(camera.combined);
         batch.begin();
 
@@ -263,7 +309,7 @@ public class GameScreen implements Screen {
         }
         batch.draw(playerFrame, player.position.x, player.position.y, 40, 50);
 
-        // For now, we'll simply render the AI using its walking down animation (or update the direction as needed).
+        // --- Render the AI ---
         TextureRegion aiFrame;
         switch (aiDirection) {
             case LEFT:
@@ -280,16 +326,20 @@ public class GameScreen implements Screen {
                 aiFrame = aiWalkDown.getKeyFrame(aiStateTime, true);
                 break;
         }
-        // Adjust the rendering size as desired (here, using 64x64 as an example)
         batch.draw(aiFrame, ai.position.x, ai.position.y, 64, 64);
 
-        // --- Draw HUD ---
+        // --- Draw Heads Up Display (HUD) ---
         font.draw(batch, "Player Score: " + player.score, camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 20);
         font.draw(batch, "AI Score: " + ai.score, camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 40);
 
+        // Draw the countdown timer if the game mode is TIMER.
+        if (settings.gameMode == GameSettings.GameMode.TIMER) {
+            int timeLeft = (int) countdownTimer;
+            font.draw(batch, "Time Left: " + timeLeft, camera.position.x + 250, camera.position.y + (camera.viewportHeight / 2f) - 20);
+        }
+
         batch.end();
     }
-
     private void update(float delta) {
         playerStateTime += delta;
         aiStateTime += delta;  // Update AI's state time
@@ -444,74 +494,80 @@ public class GameScreen implements Screen {
                     player.position.dst(chest.position) < 32) {
                     chest.open();
                     player.score++;
+
+                    // Store the treasure collection data with map name
+                    try {
+                        TreasureCollectionData collectionData = new TreasureCollectionData(
+                            currentRound,
+                            currentMapName,
+                            new Vector2(chest.position),
+                            new Vector2(player.position),
+                            true  // collected by player
+                        );
+                        TrainingDataDAO.saveTreasureCollection(collectionData);
+                    } catch (SQLException e) {
+                        e.printStackTrace();
+                    }
                 }
             }
         }
     }
 
     private void updateAI(float delta) {
-        aiMoveTimer += delta;
-        if (aiMoveTimer >= aiMoveInterval) {
-            // Pick a random new direction.
-            int randomInt = random.nextInt(4); // 0 to 3 (UP, DOWN, LEFT, RIGHT)
-            // Map the random integer to a Direction.
-            switch (randomInt) {
-                case 0:
-                    aiCurrentDirection = Direction.UP;
-                    break;
-                case 1:
-                    aiCurrentDirection = Direction.DOWN;
-                    break;
-                case 2:
-                    aiCurrentDirection = Direction.LEFT;
-                    break;
-                case 3:
-                    aiCurrentDirection = Direction.RIGHT;
-                    break;
-            }
-            aiMoveTimer = 0f;
-        }
-
-        // Save the old position in case we need to roll back.
+        // Save the old position in case we need to roll back
         Vector2 oldPosition = new Vector2(ai.position);
 
+        // Cast ai to SmartAI to access its methods
+        SmartAI smartAI = (SmartAI) ai;
 
-        // Move the AI in the current direction (assumes ai.speed exists).
-        switch (aiCurrentDirection) {
-            case LEFT:
-                ai.position.x -= ai.speed * delta;
-                break;
-            case RIGHT:
-                ai.position.x += ai.speed * delta;
-                break;
-            case UP:
-                ai.position.y += ai.speed * delta;
-                break;
-            case DOWN:
-                ai.position.y -= ai.speed * delta;
-                break;
-        }
+        // Update the AI's internal state and get movement direction
+        smartAI.update(delta, player.position, treasureChests, true);
+        Vector2 direction = smartAI.getMovementDirection();
 
-        // Check if the new position is on a walkable tile.
-        if (!isWalkableArea(ai.position)) {
+        // Move the AI in the calculated direction
+        ai.position.x += direction.x * ai.speed * delta;
+        ai.position.y += direction.y * ai.speed * delta;
+
+        // Ensure AI stays within map bounds
+        ai.position.x = MathUtils.clamp(ai.position.x, 0, mapPixelWidth - 64);
+        ai.position.y = MathUtils.clamp(ai.position.y, 0, mapPixelHeight - 64);
+
+        // Get the current direction for animation
+        aiDirection = smartAI.getCurrentDirection();
+
+        // Check if the new position is on a walkable tile
+        if (!isWalkable(ai.position)) {
             ai.position.set(oldPosition);
+            // If we hit an obstacle, choose a new direction next update
+            smartAI.targetUpdateTimer = smartAI.targetUpdateInterval;
         }
 
-
-        // Have the AI collect treasures as it moves over them.
+        // Have the AI collect treasures as it moves over them
         for (TreasureChest chest : treasureChests) {
             if (chest.state == TreasureChest.ChestState.CLOSED &&
-                ai.position.dst(chest.position) < 32) { // adjust the threshold as needed.
+                ai.position.dst(chest.position) < 32) {
                 chest.open();
-                ai.score++; // Assuming the AI has a score field.
+                ai.score++;
+
+                // Add this position as a hotspot for future reference
+                smartAI.addTreasureHotspot(new Vector2(chest.position));
+
+                // Store the treasure collection data
+                try {
+                    TreasureCollectionData collectionData = new TreasureCollectionData(
+                        currentRound,
+                        currentMapName,
+                        new Vector2(chest.position),
+                        new Vector2(ai.position),
+                        false  // collected by AI
+                    );
+                    TrainingDataDAO.saveTreasureCollection(collectionData);
+                } catch (SQLException e) {
+                    e.printStackTrace();
+                }
             }
         }
-
-        // Update aiDirection used for rendering animations.
-        aiDirection = aiCurrentDirection;
     }
-
-
     private void checkRoundEnd() {
         boolean allOpen = true;
         for (TreasureChest chest : treasureChests) {
@@ -521,19 +577,27 @@ public class GameScreen implements Screen {
             }
         }
 
-        // Removed AI chest-picking logic.
-
-        if (player.score > settings.treasureCount / 2 || allOpen) {
+        if (player.score > settings.treasureCount / 2 ||
+            ai.score > settings.treasureCount / 2 ||
+            allOpen) {
             endRound();
         }
     }
 
     private void endRound() {
         // Determine round winner.
-        // With AI removed, we simply count any round as a win for the player.
-        settings.playerRoundsWon++;
-        System.out.println("Round " + currentRound + " ended. Player Score: " + player.score);
-
+        settings.playerRoundScores.add(player.score);
+        settings.aiRoundScores.add(ai.score);
+        if (ai.score > player.score) {
+            settings.aiRoundsWon++;
+            System.out.println("Round " + currentRound + " ended. AI wins! AI Score: " + ai.score + ", Player Score: " + player.score);
+        } else if (player.score > ai.score) {
+            settings.playerRoundsWon++;
+            System.out.println("Round " + currentRound + " ended. Player wins! Player Score: " + player.score + ", AI Score: " + ai.score);
+        } else {
+            // In case of a tie, you could decide what to do (award both, award neither, etc.)
+            System.out.println("Round " + currentRound + " ended in a tie! Player Score: " + player.score + ", AI Score: " + ai.score);
+        }
         // ---------- Save a Training Sample ----------
         // Find the nearest treasure chest for training context using the player's position.
         Vector2 nearest = null;
@@ -581,48 +645,26 @@ public class GameScreen implements Screen {
             toTreasure.x,
             toTreasure.y
         };
-        TrainingSample sample = new TrainingSample(features, labels);
 
-        try {
-            TrainingDataDAO.saveTrainingSample(sample);
-            System.out.println("Training sample saved.");
-        } catch (SQLException e) {
-            e.printStackTrace();
+
+        // Check for early win based on mathematically derived winning threshold.
+        if (settings.playerRoundsWon > settings.totalRounds / 2 || settings.aiRoundsWon > settings.totalRounds / 2) {
+            game.setScreen(new EndScreen(game, settings.playerRoundsWon, settings.aiRoundsWon, settings));
+            return;
         }
 
-        // ---------- Load and Train Model from All Saved Data ----------
-        try {
-            List<TrainingSample> samples = TrainingDataDAO.getAllTrainingSamples();
-            if (!samples.isEmpty()) {
-                double[][] inputData = new double[samples.size()][8];
-                double[][] idealOutput = new double[samples.size()][4];
-                for (int i = 0; i < samples.size(); i++) {
-                    inputData[i] = samples.get(i).getFeatures();
-                    idealOutput[i] = samples.get(i).getLabels();
-                }
-                org.encog.ml.data.MLDataSet trainingSet = new BasicMLDataSet(inputData, idealOutput);
-                // The training call is kept here for your training samples.
-                // For example, if you add a future method to handle training, it can be called here.
-                System.out.println("Trained model on " + samples.size() + " samples.");
-            } else {
-                System.out.println("No training samples available for training.");
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-
-        // ---------- Transition to Next Round or End Game ----------
+        // Transition to the next round if rounds remain.
         if (currentRound < settings.totalRounds) {
             currentRound++;
             resetRound();
         } else {
-            // Since AI is removed, pass 0 for AI rounds won.
-            game.setScreen(new EndScreen(game, settings.playerRoundsWon, 0, settings));
+            game.setScreen(new EndScreen(game, settings.playerRoundsWon, settings.aiRoundsWon, settings));
         }
     }
 
     private void resetRound() {
         player.score = 0;
+        ai.score = 0; // Reset the AI's score here.
         int mapTileWidth = tiledMap.getProperties().get("width", Integer.class);
         int mapTileHeight = tiledMap.getProperties().get("height", Integer.class);
         int tilePixelWidth = tiledMap.getProperties().get("tilewidth", Integer.class);
@@ -647,9 +689,7 @@ public class GameScreen implements Screen {
             treasureChests.add(new TreasureChest(pos, 8, 0.1f));
         }
 
-        if (settings.gameMode == GameSettings.GameMode.TIMER) {
-            roundTimer = settings.timerDuration;
-        }
+        resetTimer();
     }
 
     private boolean isWalkable(Vector2 pos) {

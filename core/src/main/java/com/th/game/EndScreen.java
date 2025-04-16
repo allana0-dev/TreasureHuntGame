@@ -27,19 +27,58 @@ public class EndScreen implements Screen {
         else if (aiRoundsWon > playerRoundsWon) result = "AI is the Overall Champion!";
         else result = "The Match is a Tie!";
 
-        table.add(new Label("Game Over", skin)).colspan(2).padBottom(20);
+        // Use default style instead of "title"
+        Label titleLabel = new Label("Game Over", skin);
+        titleLabel.setFontScale(2.0f); // Make it bigger instead of using a special style
+        table.add(titleLabel).colspan(3).padBottom(30);
         table.row();
-        table.add(new Label("Player Rounds Won: " + playerRoundsWon, skin)).padBottom(10);
+
+        // Add round-by-round score breakdown
+        table.add(new Label("Round", skin)).padRight(10);
+        table.add(new Label("Player Score", skin)).padRight(10);
+        table.add(new Label("AI Score", skin)).padBottom(10);
+
+        // Add rows for each round's scores - need to check if you have the score lists in your settings
+        if (settings.playerRoundScores != null && settings.aiRoundScores != null) {
+            for (int i = 0; i < settings.playerRoundScores.size(); i++) {
+                table.row();
+                int playerScore = settings.playerRoundScores.get(i);
+                int aiScore = settings.aiRoundScores.get(i);
+                String roundResult = playerScore > aiScore ? "W" : (aiScore > playerScore ? "L" : "T");
+
+                table.add(new Label("Round " + (i+1), skin)).padRight(10);
+                table.add(new Label(playerScore + " " + (roundResult.equals("W") ? "✓" : ""), skin)).padRight(10);
+                table.add(new Label(aiScore + " " + (roundResult.equals("L") ? "✓" : ""), skin));
+            }
+        } else {
+            // Fallback if the score lists are missing
+            table.row();
+            table.add(new Label("Player Rounds Won: " + playerRoundsWon, skin)).colspan(3).padBottom(10);
+            table.row();
+            table.add(new Label("AI Rounds Won: " + aiRoundsWon, skin)).colspan(3).padBottom(10);
+        }
+
         table.row();
-        table.add(new Label("AI Rounds Won: " + aiRoundsWon, skin)).padBottom(10);
+        table.add().height(20); // Add some space
         table.row();
-        table.add(new Label(result, skin)).colspan(2).padBottom(20);
+
+        // Add totals
+        Label totalLabel = new Label("Total Rounds Won:", skin);
+        totalLabel.setFontScale(1.2f); // Make it a bit bigger
+        table.add(totalLabel).colspan(1).padBottom(10).padTop(10);
+        table.add(new Label(Integer.toString(playerRoundsWon), skin)).padBottom(10).padTop(10);
+        table.add(new Label(Integer.toString(aiRoundsWon), skin)).padBottom(10).padTop(10);
+        table.row();
+
+        Label resultLabel = new Label(result, skin);
+        resultLabel.setFontScale(1.5f); // Make the result bigger
+        table.add(resultLabel).colspan(3).padBottom(20);
         table.row();
 
         TextButton restartButton = new TextButton("Restart", skin);
         TextButton quitButton = new TextButton("Quit", skin);
-        table.add(restartButton).padRight(20);
-        table.add(quitButton);
+        table.add(restartButton).padRight(20).colspan(1);
+        table.add(quitButton).colspan(2);
 
         restartButton.addListener(event -> {
             if (restartButton.isPressed()) {
@@ -54,7 +93,6 @@ public class EndScreen implements Screen {
             return false;
         });
     }
-
     @Override public void show() { }
     @Override public void render(float delta) {
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
