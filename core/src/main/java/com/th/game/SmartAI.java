@@ -6,43 +6,88 @@ import java.util.*;
 import java.util.function.Function;
 
 public class SmartAI extends AIPlayer {
+    // Hotspot and target selection fields.
     private List<Vector2> treasureHotspots;
     private float baseSpeed;
     Vector2 currentTarget;
-    private int updatesSinceHotspot = 0;              // Counts updates without using a hotspot.
-    private final int forceHotspotInterval = 3;         // Force hotspot every 3 target updates.
+    private boolean boostActive = false; // Flag to indicate a one-time speed boost.
+    private float boostTimer = 0f;             // Remaining time for active boost.
+    private final float boostDuration = 3.0f;    // Duration for boost (e.g., 3 seconds)
+    private int updatesSinceHotspot = 0;              // Counter for target updates without using a hotspot.
+    private final int forceHotspotInterval = 3;         // Force hotspot use every 3 updates.
     float targetUpdateTimer = 0;
-    float targetUpdateInterval = 3.0f; // Change target every 3 seconds
+    float targetUpdateInterval = 3.0f; // Update target every 3 seconds.
     private Random random;
-    private int currentRegion = 0; // Current region being explored
     private Direction currentDirection = Direction.DOWN;
+
+    // Map and region fields.
     private int mapWidth, mapHeight;
-    private Vector2[][] regionTargets; // Pre-calculated targets for each region
+    private Vector2[][] regionTargets; // 9 regions (3x3 grid) with 3 targets per region.
+    private int[] regionVisitCounts;   // Track visits for each region.
     private boolean hasVisitedTreasureLocation = false;
     private Function<Vector2, Boolean> isWalkableFunction;
-    private Direction lastDirection = null;
-    private int directionChangeCounter = 0;
-    private static final int MIN_STEPS_BEFORE_REVERSAL = 15;
+
+    // Speed boost fields.
+    private final float boostMultiplier = 1.5f;  // Speed multiplier during boost.
+
+    // Oscillation and edge handling.
+    private static final float DIRECTION_TOLERANCE = 5f; // Threshold for changing direction
+    private static final float EDGE_MARGIN = 32f;          // Margin from map edges
+    private static final float STUCK_THRESHOLD = 1f;       // Minimum movement threshold
+    private Vector2 previousPosition = new Vector2();
+
+    // Direction update cooldown to reduce jitter.
+    private static final float DIRECTION_COOLDOWN = 0.5f;   // In seconds
+    private float directionCooldownTimer = 0f;
 
     public SmartAI(Vector2 position, String mapName) {
         super(position);
-        this.baseSpeed = this.speed;  // Store the initial speed (e.g. 150)
+        this.baseSpeed = this.speed; // e.g., 150
         treasureHotspots = new ArrayList<>();
         random = new Random();
-
-        // Load treasure hotspots from the database
+        previousPosition.set(position);
         loadTreasureHotspots(mapName);
     }
 
-    // Set the walkable function reference
+    // Set the walkable function.
     public void setWalkableFunction(Function<Vector2, Boolean> isWalkable) {
         this.isWalkableFunction = isWalkable;
     }
 
+    // Set map dimensions, initialize regions and regional visit counts.
+    public void setMapDimensions(int width, int height) {
+        this.mapWidth = width;
+        this.mapHeight = height;
+        regionTargets = new Vector2[9][3];
+        regionVisitCounts = new int[9]; // All starting at 0.
+        int regionWidth = mapWidth / 3;
+        int regionHeight = mapHeight / 3;
+        for (int region = 0; region < 9; region++) {
+            int regionX = (region % 3) * regionWidth;
+            int regionY = (region / 3) * regionHeight;
+            for (int i = 0; i < 3; i++) {
+                regionTargets[region][i] = findWalkablePositionInRegion(regionX, regionY, regionWidth, regionHeight);
+            }
+        }
+    }
+
+    // Find a walkable position in a region; fallback to region center.
+    private Vector2 findWalkablePositionInRegion(int regionX, int regionY, int width, int height) {
+        for (int attempt = 0; attempt < 10; attempt++) {
+            float x = regionX + random.nextFloat() * width;
+            float y = regionY + random.nextFloat() * height;
+            Vector2 pos = new Vector2(x, y);
+            if (isWalkableFunction != null && isWalkableFunction.apply(pos)) {
+                return pos;
+            }
+        }
+        return new Vector2(regionX + width / 2f, regionY + height / 2f);
+    }
+
+    // Load treasure hotspots.
     private void loadTreasureHotspots(String mapName) {
         try {
             List<TreasureCollectionData> collections = TrainingDataDAO.getCollectionDataByMap(mapName);
-
             if (collections.size() >= 3) {
                 for (TreasureCollectionData data : collections) {
                     treasureHotspots.add(data.getTreasurePosition());
@@ -59,191 +104,152 @@ public class SmartAI extends AIPlayer {
         }
     }
 
-    // Should be called once to set up the map dimensions
-    public void setMapDimensions(int width, int height) {
-        this.mapWidth = width;
-        this.mapHeight = height;
-
-        // Create region targets - dividing map into 9 regions (3x3 grid)
-        regionTargets = new Vector2[9][3]; // 9 regions, 3 targets per region
-
-        int regionWidth = mapWidth / 3;
-        int regionHeight = mapHeight / 3;
-
-        // For each region
-        for (int region = 0; region < 9; region++) {
-            int regionX = (region % 3) * regionWidth;
-            int regionY = (region / 3) * regionHeight;
-
-            // Create 3 random targets within this region
-            for (int i = 0; i < 3; i++) {
-                // Try to find a walkable position in this region
-                Vector2 targetPos = findWalkablePositionInRegion(
-                    regionX, regionY, regionWidth, regionHeight);
-                regionTargets[region][i] = targetPos;
-            }
-        }
+    // Trigger a one-frame speed boost.
+    public void triggerSpeedBoost() {
+        boostTimer = boostDuration;
     }
 
-    // Find a walkable position within a specific region
-    private Vector2 findWalkablePositionInRegion(int regionX, int regionY, int width, int height) {
-        // Try up to 10 times to find a walkable position
-        for (int attempt = 0; attempt < 10; attempt++) {
-            float x = regionX + random.nextFloat() * width;
-            float y = regionY + random.nextFloat() * height;
-            Vector2 pos = new Vector2(x, y);
 
-            // Check if position is walkable
-            if (isWalkableFunction != null && isWalkableFunction.apply(pos)) {
-                return pos;
-            }
-        }
-
-        // If we couldn't find a walkable position, return the center of the region
-        // (we'll check walkability again when we try to move there)
-        return new Vector2(regionX + width/2, regionY + height/2);
-    }
-
+    // Update method: called each frame.
     public void update(float delta, Vector2 playerPosition, ArrayList<TreasureChest> treasureChests, boolean isAreaWalkable) {
-        // Always reset speed to base at the start of each update cycle.
-        this.speed = baseSpeed;
-
-        // Update timer and counters.
-        targetUpdateTimer += delta;
-        if (directionChangeCounter >= 0) {
-            directionChangeCounter++;
+        // Set speed based on boost flag.
+        if (boostTimer > 0) {
+            speed = baseSpeed * boostMultiplier;
+            boostTimer -= delta;
+        } else {
+            speed = baseSpeed;
         }
 
-        // Compute adaptive hotspot probability.
-        float hotspotProbability = Math.min(1.0f, 0.3f + 0.05f * treasureHotspots.size());
+        targetUpdateTimer += delta;
+        directionCooldownTimer -= delta;
 
-        // Check if we need to update the target.
-        if (currentTarget == null || targetUpdateTimer >= targetUpdateInterval ||
-            (currentTarget != null && position.dst(currentTarget) < 32)) {
-            // Update target and apply boost if using hotspot
-
-
+        // Update target if needed.
+        if (currentTarget == null || targetUpdateTimer >= targetUpdateInterval || position.dst(currentTarget) < 32) {
             targetUpdateTimer = 0;
+            updatesSinceHotspot++;
             boolean useHotspot = false;
-            updatesSinceHotspot++;  // Increase the counter since no hotspot used yet.
-
-            // Decide whether to use a hotspot.
+            float hotspotProbability = Math.min(1.0f, 0.3f + 0.05f * treasureHotspots.size());
             if (hasVisitedTreasureLocation && !treasureHotspots.isEmpty()) {
                 if (random.nextFloat() < hotspotProbability || updatesSinceHotspot >= forceHotspotInterval) {
                     useHotspot = true;
                 }
             }
-
             if (useHotspot) {
                 currentTarget = treasureHotspots.get(random.nextInt(treasureHotspots.size()));
-                // Apply speed boost.
-                this.speed = baseSpeed * 1.5f;
                 updatesSinceHotspot = 0;
             } else {
                 chooseRegionalTarget();
             }
-
-            // Verify the new target is walkable and update direction.
             ensureWalkableTarget();
-            chooseDirectionToTarget();
+            if (directionCooldownTimer <= 0) {
+                updateDirectionToTarget();
+                directionCooldownTimer = DIRECTION_COOLDOWN;
+            }
         }
 
-        // Gradually decay speed back to baseSpeed.
-        float decayFactor = 0.1f;
-        this.speed = this.speed - decayFactor * (this.speed - baseSpeed);
+        // Edge avoidance: if near the border, choose a central target.
+        if (position.x < EDGE_MARGIN || position.x > mapWidth - EDGE_MARGIN ||
+            position.y < EDGE_MARGIN || position.y > mapHeight - EDGE_MARGIN) {
+            currentTarget = new Vector2(mapWidth / 2f, mapHeight / 2f);
+            updateDirectionToTarget();
+            directionCooldownTimer = DIRECTION_COOLDOWN;
+        }
+
+        // Check if the AI is stuck (hasn't moved sufficiently).
+        if (position.dst(previousPosition) < STUCK_THRESHOLD) {
+            chooseRegionalTarget();
+            ensureWalkableTarget();
+            updateDirectionToTarget();
+            directionCooldownTimer = DIRECTION_COOLDOWN;
+        }
+        previousPosition.set(position);
+
+        // Before moving, check if the next step is walkable.
+        Vector2 nextStep = position.cpy().add(getMovementDirection().scl(speed * delta));
+        if (isWalkableFunction != null && !isWalkableFunction.apply(nextStep)) {
+            chooseRegionalTarget();
+            ensureWalkableTarget();
+            updateDirectionToTarget();
+            directionCooldownTimer = DIRECTION_COOLDOWN;
+        }
+
+        // Finally, move strictly in the current cardinal direction.
+        position.add(getMovementDirection().scl(speed * delta));
     }
 
+    // Choose a regional target that favors less-explored areas.
+    private void chooseRegionalTarget() {
+        int minVisitCount = Integer.MAX_VALUE;
+        List<Integer> candidateRegions = new ArrayList<>();
+        for (int region = 0; region < regionVisitCounts.length; region++) {
+            if (regionVisitCounts[region] < minVisitCount) {
+                minVisitCount = regionVisitCounts[region];
+                candidateRegions.clear();
+                candidateRegions.add(region);
+            } else if (regionVisitCounts[region] == minVisitCount) {
+                candidateRegions.add(region);
+            }
+        }
+        int chosenRegion = candidateRegions.get(random.nextInt(candidateRegions.size()));
+        regionVisitCounts[chosenRegion]++;
+        int targetIndex = random.nextInt(3);
+        currentTarget = regionTargets[chosenRegion][targetIndex];
+    }
 
+    // Ensure the target is walkable; if not, adjust.
     private void ensureWalkableTarget() {
         if (currentTarget == null || isWalkableFunction == null) return;
-
-        // Check if current target is walkable
         if (!isWalkableFunction.apply(currentTarget)) {
-            // Try to find a walkable target nearby
             for (int attempt = 0; attempt < 8; attempt++) {
-                // Try different directions
                 float angle = attempt * (360f / 8);
-                float distance = 50; // Search 50 pixels away
+                float distance = 50;
                 float x = currentTarget.x + (float)Math.cos(Math.toRadians(angle)) * distance;
                 float y = currentTarget.y + (float)Math.sin(Math.toRadians(angle)) * distance;
-
-                // Keep within map bounds
                 x = Math.min(Math.max(x, 0), mapWidth - 1);
                 y = Math.min(Math.max(y, 0), mapHeight - 1);
-
                 Vector2 newTarget = new Vector2(x, y);
                 if (isWalkableFunction.apply(newTarget)) {
                     currentTarget = newTarget;
                     return;
                 }
             }
-
-            // If we still can't find a walkable target, choose a new region
-            currentRegion = (currentRegion + 1) % 9;
             chooseRegionalTarget();
         }
     }
 
-    private void chooseRegionalTarget() {
-        // Get a target from the current region
-        int targetIndex = random.nextInt(3); // Each region has 3 targets
-        currentTarget = regionTargets[currentRegion][targetIndex];
+    // Update the currentDirection based on the target, with a tolerance to reduce jitter.
+// Update the currentDirection based on the target, with additional checks to avoid rapid oscillations.
+    private void updateDirectionToTarget() {
+        Vector2 diff = currentTarget.cpy().sub(position);
+        Direction desiredDirection;
 
-        // If we're close to the target or by random chance, move to next region
-        if (position.dst(currentTarget) < 100 || random.nextFloat() < 0.2f) {
-            // Move to the next region
-            currentRegion = (currentRegion + 1) % 9;
+        // Determine the desired direction based on which axis has a significantly larger difference.
+        if (Math.abs(diff.x) >= Math.abs(diff.y) + DIRECTION_TOLERANCE) {
+            desiredDirection = diff.x > 0 ? Direction.RIGHT : Direction.LEFT;
+        } else if (Math.abs(diff.y) >= Math.abs(diff.x) + DIRECTION_TOLERANCE) {
+            desiredDirection = diff.y > 0 ? Direction.UP : Direction.DOWN;
+        } else {
+            desiredDirection = currentDirection; // If differences are minimal, maintain direction.
+        }
+
+        // Check if the new desired direction is opposite to the current direction.
+        boolean isOpposite = (desiredDirection == Direction.UP && currentDirection == Direction.DOWN) ||
+            (desiredDirection == Direction.DOWN && currentDirection == Direction.UP) ||
+            (desiredDirection == Direction.LEFT && currentDirection == Direction.RIGHT) ||
+            (desiredDirection == Direction.RIGHT && currentDirection == Direction.LEFT);
+
+        // Only switch if not an immediate reversal OR if the AI is very close to the target (thus requiring a change).
+        if (isOpposite && diff.len() > 32) {
+            // Do not update; keep the current direction to prevent oscillation.
+            return;
+        } else {
+            currentDirection = desiredDirection;
         }
     }
 
-    // Choose one of the four cardinal directions to move toward the target
-    // Replace chooseDirectionToTarget method with this improved version
-    private void chooseDirectionToTarget() {
-        if (currentTarget == null) return;
 
-        // Calculate the differences
-        float dx = currentTarget.x - position.x;
-        float dy = currentTarget.y - position.y;
-
-        // Introduce a tolerance level (e.g., 10 pixels)
-        float tolerance = 10f;
-
-        Direction preferredDirection;
-
-        // Only prioritize one axis if the difference is significantly higher than the other.
-        if (Math.abs(dx) - Math.abs(dy) > tolerance) {
-            preferredDirection = dx > 0 ? Direction.RIGHT : Direction.LEFT;
-        } else if (Math.abs(dy) - Math.abs(dx) > tolerance) {
-            preferredDirection = dy > 0 ? Direction.UP : Direction.DOWN;
-        } else {
-            // If differences are similar, stick to the current direction to avoid oscillations.
-            preferredDirection = currentDirection;
-        }
-
-        // Check for immediate reversal
-        boolean wouldReverseDirection =
-            (preferredDirection == Direction.UP && currentDirection == Direction.DOWN) ||
-                (preferredDirection == Direction.DOWN && currentDirection == Direction.UP) ||
-                (preferredDirection == Direction.LEFT && currentDirection == Direction.RIGHT) ||
-                (preferredDirection == Direction.RIGHT && currentDirection == Direction.LEFT);
-
-        if (wouldReverseDirection && directionChangeCounter < MIN_STEPS_BEFORE_REVERSAL) {
-            // Maintain current direction to avoid immediate back-and-forth.
-            directionChangeCounter++;
-        } else {
-            lastDirection = currentDirection;
-            currentDirection = preferredDirection;
-            // Reset counter when direction change is accepted.
-            if (lastDirection != currentDirection) {
-                directionChangeCounter = 0;
-            } else {
-                directionChangeCounter++;
-            }
-        }
-    }
-
+    // Return a cardinal unit vector based on currentDirection.
     public Vector2 getMovementDirection() {
-        // Return a unit vector in one of the four cardinal directions
         switch (currentDirection) {
             case UP:
                 return new Vector2(0, 1);
@@ -262,13 +268,10 @@ public class SmartAI extends AIPlayer {
         return currentDirection;
     }
 
+    // Add a new hotspot (if treasure is collected, etc.).
     public void addTreasureHotspot(Vector2 treasurePos) {
         treasureHotspots.add(new Vector2(treasurePos));
         hasVisitedTreasureLocation = true;
     }
 
-    // For debugging
-    public Vector2 getCurrentTarget() {
-        return currentTarget;
-    }
 }

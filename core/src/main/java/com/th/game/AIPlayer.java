@@ -8,7 +8,7 @@ public class AIPlayer extends GameCharacter {
     private Random random;
 
     public AIPlayer(Vector2 position) {
-        super(position, 150);  // AI speed
+        super(position, 60);  // AI speed
         random = new Random();
         target = null;
     }

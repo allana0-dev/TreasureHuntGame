@@ -27,6 +27,7 @@ import com.badlogic.gdx.math.MathUtils;
 import org.encog.ml.data.basic.BasicMLDataSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
 
@@ -46,7 +47,11 @@ public class GameScreen implements Screen {
     private ShapeRenderer shapeRenderer;
     private int tileWidth;
     private int tileHeight;
-    private float countdownTimer; // remaining time in seconds
+    private float countdownTimer;
+    private float hintTimer = 0f;         // Accumulates time until 10 seconds have passed.
+    private String currentHint = "";      // The current hint message to display.
+    private final float HINT_INTERVAL = 10f; // Interval for showing a new hint (10 seconds).
+    private List<Landmark> landmarks = new ArrayList<>();
 
 
     // --- AI fields ---
@@ -130,6 +135,9 @@ public class GameScreen implements Screen {
 
 // --- Load Tile Map ---
         tiledMap = new TmxMapLoader().load(selectedMap.getPath());
+
+        loadAllLandmarksFromObjectGroups();
+
 
         // --- Load Tile Map ---
         mapRenderer = new OrthogonalTiledMapRenderer(tiledMap);
@@ -247,6 +255,31 @@ public class GameScreen implements Screen {
         this.countdownTimer = settings.timerDuration;
     }
 
+
+    private void loadAllLandmarksFromObjectGroups() {
+        // Clear any previously loaded landmarks
+        landmarks.clear();
+
+        // Iterate over all map layers
+        for (MapLayer layer : tiledMap.getLayers()) {
+            MapObjects objects = layer.getObjects();
+            if (objects.getCount() > 0) {  // or objects.size if available
+                System.out.println("Loading landmarks from layer: " + layer.getName());
+                for (MapObject object : objects) {
+                    float x = Float.parseFloat(object.getProperties().get("x").toString());
+                    float y = Float.parseFloat(object.getProperties().get("y").toString());
+                    String name = object.getName();
+                    float radius = 100f; // You can adjust or calculate the radius accordingly
+                    landmarks.add(new Landmark(name, new Vector2(x, y), radius));
+                    System.out.println("Loaded landmark: " + name + " at (" + x + ", " + y + ")");
+                }
+            }
+        }
+        System.out.println("Total landmarks loaded: " + landmarks.size());
+    }
+
+
+
     @Override
     public void render(float delta) {
         // Update countdown timer only when in TIMER mode.
@@ -288,6 +321,8 @@ public class GameScreen implements Screen {
                 chest.render(batch, 1f);
             }
         }
+
+
 
         // --- Render the Player ---
         batch.setColor(Color.WHITE);
@@ -331,7 +366,10 @@ public class GameScreen implements Screen {
         // --- Draw Heads Up Display (HUD) ---
         font.draw(batch, "Player Score: " + player.score, camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 20);
         font.draw(batch, "AI Score: " + ai.score, camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 40);
-
+        if (!currentHint.isEmpty()) {
+            // You can adjust the x,y position based on your camera or HUD layout.
+            font.draw(batch, currentHint, camera.position.x - 200, camera.position.y + camera.viewportHeight / 2 - 50);
+        }
         // Draw the countdown timer if the game mode is TIMER.
         if (settings.gameMode == GameSettings.GameMode.TIMER) {
             int timeLeft = (int) countdownTimer;
@@ -340,29 +378,61 @@ public class GameScreen implements Screen {
 
         batch.end();
     }
+
+    private String generateHintForTreasure(TreasureChest chest) {
+        for (Landmark landmark : landmarks) {
+            // Check if the treasure is within a set distance from the landmark.
+            float distance = chest.position.dst(landmark.position);
+            if (distance < landmark.radius) {
+                // Replace underscores with spaces to improve readability.
+                return "A treasure is placed close to a " + landmark.name.replace("_", " ");
+            }
+        }
+        return "";
+    }
+
+
     private void update(float delta) {
+        // Update game logic, player movement, AI, etc.
         playerStateTime += delta;
-        aiStateTime += delta;  // Update AI's state time
+        aiStateTime += delta;
 
-
+        // Handle player input and AI updates...
         handlePlayerInput(delta);
-        updateAI(delta);  // Add the AI update call here.
+        updateAI(delta);
 
-        // Removed AI movement updates.
-
+        // Update treasure states and other game logic.
         for (TreasureChest chest : treasureChests) {
             chest.update(delta);
         }
 
-        if (settings.gameMode == GameSettings.GameMode.TIMER) {
-            roundTimer -= delta;
-            if (roundTimer < 0) {
-                endRound();
-            }
+        // Update your hint timer
+        hintTimer += delta;
+        if (hintTimer >= HINT_INTERVAL) {
+            hintTimer = 0f; // reset timer
+            // Optionally, select a hint from the list of treasures that is closed
+            // or select one based on landmarks.
+            currentHint = generateGlobalHint();
         }
+
+        // Update the camera and check round conditions.
         updateCamera();
         checkRoundEnd();
     }
+    private String generateGlobalHint() {
+        // Loop over closed treasures and generate a hint if one is near a landmark.
+        for (TreasureChest chest : treasureChests) {
+            if (chest.state == TreasureChest.ChestState.CLOSED) {
+                String hint = generateHintForTreasure(chest);
+                if (!hint.isEmpty()) {
+                    return hint;
+                }
+            }
+        }
+        // Fallback message if no treasure is near a landmark.
+        return "Explore the area for hidden treasures!";
+    }
+
 
     // Camera update
     private void updateCamera() {
@@ -508,6 +578,19 @@ public class GameScreen implements Screen {
                     } catch (SQLException e) {
                         e.printStackTrace();
                     }
+
+                    // Remove associated landmark hints:
+                    Iterator<Landmark> iter = landmarks.iterator();
+                    while (iter.hasNext()) {
+                        Landmark lm = iter.next();
+                        // Check if the treasure is within the landmark's radius.
+                        if (chest.position.dst(lm.position) < lm.radius) {
+                            System.out.println("Removing landmark hint: " + lm.name + " (treasure collected)");
+                            iter.remove();
+                            // Optionally break if each treasure should only remove one landmark:
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -555,6 +638,8 @@ public class GameScreen implements Screen {
                 // Force a target update so that the boost can be applied
                 smartAI.currentTarget = null;
 
+                smartAI.triggerSpeedBoost();
+
                 // Store the treasure collection data
                 try {
                     TreasureCollectionData collectionData = new TreasureCollectionData(
@@ -567,6 +652,20 @@ public class GameScreen implements Screen {
                     TrainingDataDAO.saveTreasureCollection(collectionData);
                 } catch (SQLException e) {
                     e.printStackTrace();
+                }
+
+
+                // Remove associated landmark hints:
+                Iterator<Landmark> iter = landmarks.iterator();
+                while (iter.hasNext()) {
+                    Landmark lm = iter.next();
+                    // Check if the treasure is within the landmark's radius.
+                    if (chest.position.dst(lm.position) < lm.radius) {
+                        System.out.println("Removing landmark hint: " + lm.name + " (treasure collected)");
+                        iter.remove();
+                        // Optionally break if each treasure should only remove one landmark:
+                        break;
+                    }
                 }
             }
         }
