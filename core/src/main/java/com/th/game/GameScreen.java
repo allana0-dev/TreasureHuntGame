@@ -179,7 +179,7 @@ public class GameScreen implements Screen {
         SmartAI smartAI = (SmartAI) ai;
         smartAI.setMapDimensions(mapPixelWidth, mapPixelHeight);
 
-        smartAI.setWalkableFunction(this::isWalkable);
+        smartAI.setWalkableFunction(this::isWalkableArea);
 
 
 
@@ -536,11 +536,11 @@ public class GameScreen implements Screen {
         aiDirection = smartAI.getCurrentDirection();
 
         // Check if the new position is on a walkable tile
-        if (!isWalkable(ai.position)) {
+        if (!isWalkableArea(ai.position)) {
             ai.position.set(oldPosition);
-            // If we hit an obstacle, choose a new direction next update
             smartAI.targetUpdateTimer = smartAI.targetUpdateInterval;
         }
+
 
         // Have the AI collect treasures as it moves over them
         for (TreasureChest chest : treasureChests) {
@@ -549,8 +549,11 @@ public class GameScreen implements Screen {
                 chest.open();
                 ai.score++;
 
+
                 // Add this position as a hotspot for future reference
                 smartAI.addTreasureHotspot(new Vector2(chest.position));
+                // Force a target update so that the boost can be applied
+                smartAI.currentTarget = null;
 
                 // Store the treasure collection data
                 try {

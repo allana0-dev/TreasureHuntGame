@@ -7,7 +7,10 @@ import java.util.function.Function;
 
 public class SmartAI extends AIPlayer {
     private List<Vector2> treasureHotspots;
-    private Vector2 currentTarget;
+    private float baseSpeed;
+    Vector2 currentTarget;
+    private int updatesSinceHotspot = 0;              // Counts updates without using a hotspot.
+    private final int forceHotspotInterval = 3;         // Force hotspot every 3 target updates.
     float targetUpdateTimer = 0;
     float targetUpdateInterval = 3.0f; // Change target every 3 seconds
     private Random random;
@@ -19,10 +22,11 @@ public class SmartAI extends AIPlayer {
     private Function<Vector2, Boolean> isWalkableFunction;
     private Direction lastDirection = null;
     private int directionChangeCounter = 0;
-    private static final int MIN_STEPS_BEFORE_REVERSAL = 10;
+    private static final int MIN_STEPS_BEFORE_REVERSAL = 15;
 
     public SmartAI(Vector2 position, String mapName) {
         super(position);
+        this.baseSpeed = this.speed;  // Store the initial speed (e.g. 150)
         treasureHotspots = new ArrayList<>();
         random = new Random();
 
@@ -101,38 +105,55 @@ public class SmartAI extends AIPlayer {
     }
 
     public void update(float delta, Vector2 playerPosition, ArrayList<TreasureChest> treasureChests, boolean isAreaWalkable) {
-        // Update timer
-        targetUpdateTimer += delta;
+        // Always reset speed to base at the start of each update cycle.
+        this.speed = baseSpeed;
 
-        // Increment counter each update to track how long we've been moving in this direction
-        // Only increment if we haven't just changed directions
+        // Update timer and counters.
+        targetUpdateTimer += delta;
         if (directionChangeCounter >= 0) {
             directionChangeCounter++;
         }
 
-        // Update target periodically or when reached
+        // Compute adaptive hotspot probability.
+        float hotspotProbability = Math.min(1.0f, 0.3f + 0.05f * treasureHotspots.size());
+
+        // Check if we need to update the target.
         if (currentTarget == null || targetUpdateTimer >= targetUpdateInterval ||
             (currentTarget != null && position.dst(currentTarget) < 32)) {
+            // Update target and apply boost if using hotspot
 
-            // Reset timer
+
             targetUpdateTimer = 0;
+            boolean useHotspot = false;
+            updatesSinceHotspot++;  // Increase the counter since no hotspot used yet.
 
-            // Choose next target based on available treasure data
-            if (hasVisitedTreasureLocation && !treasureHotspots.isEmpty() && random.nextFloat() < 0.3f) {
-                // 30% chance to target a known treasure location
+            // Decide whether to use a hotspot.
+            if (hasVisitedTreasureLocation && !treasureHotspots.isEmpty()) {
+                if (random.nextFloat() < hotspotProbability || updatesSinceHotspot >= forceHotspotInterval) {
+                    useHotspot = true;
+                }
+            }
+
+            if (useHotspot) {
                 currentTarget = treasureHotspots.get(random.nextInt(treasureHotspots.size()));
+                // Apply speed boost.
+                this.speed = baseSpeed * 1.5f;
+                updatesSinceHotspot = 0;
             } else {
-                // Otherwise explore regions systematically
                 chooseRegionalTarget();
             }
 
-            // Verify target is walkable
+            // Verify the new target is walkable and update direction.
             ensureWalkableTarget();
-
-            // Set direction based on new target
             chooseDirectionToTarget();
         }
+
+        // Gradually decay speed back to baseSpeed.
+        float decayFactor = 0.1f;
+        this.speed = this.speed - decayFactor * (this.speed - baseSpeed);
     }
+
+
     private void ensureWalkableTarget() {
         if (currentTarget == null || isWalkableFunction == null) return;
 
@@ -184,34 +205,35 @@ public class SmartAI extends AIPlayer {
         float dx = currentTarget.x - position.x;
         float dy = currentTarget.y - position.y;
 
+        // Introduce a tolerance level (e.g., 10 pixels)
+        float tolerance = 10f;
+
         Direction preferredDirection;
 
-        // Determine which direction (horizontal or vertical) to prioritize
-        if (Math.abs(dx) > Math.abs(dy)) {
-            // Prioritize horizontal movement
+        // Only prioritize one axis if the difference is significantly higher than the other.
+        if (Math.abs(dx) - Math.abs(dy) > tolerance) {
             preferredDirection = dx > 0 ? Direction.RIGHT : Direction.LEFT;
-        } else {
-            // Prioritize vertical movement
+        } else if (Math.abs(dy) - Math.abs(dx) > tolerance) {
             preferredDirection = dy > 0 ? Direction.UP : Direction.DOWN;
+        } else {
+            // If differences are similar, stick to the current direction to avoid oscillations.
+            preferredDirection = currentDirection;
         }
 
-        // Check if this would result in an immediate reversal
+        // Check for immediate reversal
         boolean wouldReverseDirection =
             (preferredDirection == Direction.UP && currentDirection == Direction.DOWN) ||
                 (preferredDirection == Direction.DOWN && currentDirection == Direction.UP) ||
                 (preferredDirection == Direction.LEFT && currentDirection == Direction.RIGHT) ||
                 (preferredDirection == Direction.RIGHT && currentDirection == Direction.LEFT);
 
-        // If it would reverse and we haven't moved enough in the current direction
         if (wouldReverseDirection && directionChangeCounter < MIN_STEPS_BEFORE_REVERSAL) {
-            // Continue in the current direction until we've moved enough
+            // Maintain current direction to avoid immediate back-and-forth.
             directionChangeCounter++;
         } else {
-            // Otherwise, use the new direction
             lastDirection = currentDirection;
             currentDirection = preferredDirection;
-
-            // Reset counter if we changed direction
+            // Reset counter when direction change is accepted.
             if (lastDirection != currentDirection) {
                 directionChangeCounter = 0;
             } else {
