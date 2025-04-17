@@ -1,19 +1,24 @@
 package com.th.game;
 
 import com.badlogic.gdx.math.Vector2;
-import java.util.Random;
 
-public class AIPlayer extends GameCharacter {
-    private Vector2 target;
-    private Random random;
+public class AIPlayer {
+    public Vector2 position;
+    public int score;
+    public float speed = 150f; // Default AI movement speed
 
-    public AIPlayer(Vector2 position) {
-        super(position, 60);  // AI speed
-        random = new Random();
-        target = null;
+    public AIPlayer(Vector2 startPos) {
+        this.position = startPos;
+        this.score = 0;
     }
 
-    public void setTarget(Vector2 target) {
-        this.target = target;
+    // Default update method that can be overridden by subclasses
+    public void update(float delta, GameScreen gameScreen) {
+        // Base implementation does nothing
+    }
+
+    // Default method to get current direction
+    public Direction getCurrentDirection() {
+        return Direction.DOWN; // Default direction
     }
 }

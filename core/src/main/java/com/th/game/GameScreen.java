@@ -55,8 +55,8 @@ public class GameScreen implements Screen {
 
 
     // --- AI fields ---
-    private AIPlayer ai;
-    private SmartAI aiManager;  // Use SmartAI instead of AIPlayer
+// at top of GameScreen
+    private SmartAI ai;
     private Animation<TextureRegion> aiWalkDown;
     private Animation<TextureRegion> aiWalkLeft;
     private Animation<TextureRegion> aiWalkRight;
@@ -184,10 +184,7 @@ public class GameScreen implements Screen {
             ai = new SmartAI(new Vector2(random.nextInt(mapPixelWidth), random.nextInt(mapPixelHeight)), currentMapName);
         } while (!isWalkable(ai.position));
 
-        SmartAI smartAI = (SmartAI) ai;
-        smartAI.setMapDimensions(mapPixelWidth, mapPixelHeight);
 
-        smartAI.setWalkableFunction(this::isWalkableArea);
 
 
 
@@ -448,86 +445,6 @@ public class GameScreen implements Screen {
         camera.update();
     }
 
-    private boolean isWalkableArea(Vector2 pos) {
-        // --- 1. Tile-Based Check ---
-
-        // First, check if the position is on one of your allowed layers.
-        // Adjust these names as needed.
-        String[] allowedLayers = {"Green Patch", "Grass", "Path"};
-        boolean allowedTile = false;
-        for (String layerName : allowedLayers) {
-            MapLayer layerRaw = tiledMap.getLayers().get(layerName);
-            if (layerRaw instanceof TiledMapTileLayer) {
-                TiledMapTileLayer layer = (TiledMapTileLayer) layerRaw;
-                int tileX = (int)(pos.x / tileWidth);
-                int tileY = (int)(pos.y / tileHeight);
-                TiledMapTileLayer.Cell cell = layer.getCell(tileX, tileY);
-                if (cell != null && cell.getTile() != null && cell.getTile().getId() != 0) {
-                    allowedTile = true;
-                    // Debug output (optional)
-                    // System.out.println("Allowed by layer: " + layerName);
-                    break;
-                }
-            }
-        }
-        if (!allowedTile) {
-            // System.out.println("Not allowed by any allowed layer");
-            return false;
-        }
-
-        // Next, check that none of the collidable tile layers block this cell.
-        String[] collidableLayers = {"corn/rocks", "Trees", "Fruits"};
-        for (String layerName : collidableLayers) {
-            MapLayer layerRaw = tiledMap.getLayers().get(layerName);
-            if (layerRaw instanceof TiledMapTileLayer) {
-                TiledMapTileLayer layer = (TiledMapTileLayer) layerRaw;
-                int tileX = (int)(pos.x / tileWidth);
-                int tileY = (int)(pos.y / tileHeight);
-                TiledMapTileLayer.Cell cell = layer.getCell(tileX, tileY);
-                if (cell != null && cell.getTile() != null && cell.getTile().getId() != 0) {
-                    // System.out.println("Blocked by collidable layer: " + layerName);
-                    return false;
-                }
-            }
-        }
-
-        // --- 2. Object-Based Collision Check ---
-        MapLayer collisionLayer = tiledMap.getLayers().get("Collision");
-        if (collisionLayer != null) {
-            MapObjects objects = collisionLayer.getObjects();
-            for (MapObject object : objects) {
-                // Check for rectangular objects.
-                if (object instanceof RectangleMapObject) {
-                    Rectangle rect = ((RectangleMapObject) object).getRectangle();
-                    if (rect.contains(pos.x, pos.y)) {
-                        // System.out.println("Blocked by a rectangle collision object");
-                        return false;
-                    }
-                }
-                // Check for polygon objects.
-                else if (object instanceof PolygonMapObject) {
-                    Polygon polygon = ((PolygonMapObject) object).getPolygon();
-                    if (polygon.contains(pos.x, pos.y)) {
-                        // System.out.println("Blocked by a polygon collision object");
-                        return false;
-                    }
-                }
-                // Check for ellipse objects.
-                else if (object instanceof EllipseMapObject) {
-                    Ellipse ellipse = ((EllipseMapObject) object).getEllipse();
-                    if (ellipse.contains(pos.x, pos.y)) {
-                        // System.out.println("Blocked by an ellipse collision object");
-                        return false;
-                    }
-                }
-                // Extend with additional shape checks if needed.
-            }
-        }
-
-        // If no blocking tiles or objects, the position is walkable.
-        return true;
-    }
-
 
 
     // Handle player input
@@ -551,10 +468,8 @@ public class GameScreen implements Screen {
         int mapTileHeight = tiledMap.getProperties().get("height", Integer.class);
         int tilePixelWidth = tiledMap.getProperties().get("tilewidth", Integer.class);
         int tilePixelHeight = tiledMap.getProperties().get("tileheight", Integer.class);
-        int mapPixelWidth = mapTileWidth * tilePixelWidth;
-        int mapPixelHeight = mapTileHeight * tilePixelHeight;
         player.position.x = MathUtils.clamp(player.position.x, 0, mapPixelWidth - 64);
-        player.position.y = MathUtils.clamp(player.position.y, 0, mapPixelHeight - 96);
+        player.position.y = MathUtils.clamp(player.position.y, 0, mapPixelHeight - 64);
         if (!isWalkable(player.position)) {
             player.position.set(oldPosition);
         }
@@ -596,34 +511,32 @@ public class GameScreen implements Screen {
         }
     }
 
+    // Modify the updateAI method in GameScreen.java
     private void updateAI(float delta) {
         // Save the old position in case we need to roll back
         Vector2 oldPosition = new Vector2(ai.position);
 
-        // Cast ai to SmartAI to access its methods
-        SmartAI smartAI = (SmartAI) ai;
+        // Update the AI's internal state and movement
+        ai.update(delta, this); // Pass this GameScreen instance to the AI
 
-        // Update the AI's internal state and get movement direction
-        smartAI.update(delta, player.position, treasureChests, true);
-        Vector2 direction = smartAI.getMovementDirection();
-
-        // Move the AI in the calculated direction
-        ai.position.x += direction.x * ai.speed * delta;
-        ai.position.y += direction.y * ai.speed * delta;
+        // Set animation direction based on AI's current direction
+        aiDirection = ai.getCurrentDirection();
 
         // Ensure AI stays within map bounds
+        int mapTileWidth = tiledMap.getProperties().get("width", Integer.class);
+        int mapTileHeight = tiledMap.getProperties().get("height", Integer.class);
+        int tilePixelWidth = tiledMap.getProperties().get("tilewidth", Integer.class);
+        int tilePixelHeight = tiledMap.getProperties().get("tileheight", Integer.class);
+        int mapPixelWidth = mapTileWidth * tilePixelWidth;
+        int mapPixelHeight = mapTileHeight * tilePixelHeight;
+
         ai.position.x = MathUtils.clamp(ai.position.x, 0, mapPixelWidth - 64);
         ai.position.y = MathUtils.clamp(ai.position.y, 0, mapPixelHeight - 64);
 
-        // Get the current direction for animation
-        aiDirection = smartAI.getCurrentDirection();
-
-        // Check if the new position is on a walkable tile
-        if (!isWalkableArea(ai.position)) {
+        // Double-check if the new position is walkable
+        if (!isWalkable(ai.position)) {
             ai.position.set(oldPosition);
-            smartAI.targetUpdateTimer = smartAI.targetUpdateInterval;
         }
-
 
         // Have the AI collect treasures as it moves over them
         for (TreasureChest chest : treasureChests) {
@@ -631,14 +544,6 @@ public class GameScreen implements Screen {
                 ai.position.dst(chest.position) < 32) {
                 chest.open();
                 ai.score++;
-
-
-                // Add this position as a hotspot for future reference
-                smartAI.addTreasureHotspot(new Vector2(chest.position));
-                // Force a target update so that the boost can be applied
-                smartAI.currentTarget = null;
-
-                smartAI.triggerSpeedBoost();
 
                 // Store the treasure collection data
                 try {
@@ -654,16 +559,13 @@ public class GameScreen implements Screen {
                     e.printStackTrace();
                 }
 
-
-                // Remove associated landmark hints:
+                // Remove associated landmark hints
                 Iterator<Landmark> iter = landmarks.iterator();
                 while (iter.hasNext()) {
                     Landmark lm = iter.next();
-                    // Check if the treasure is within the landmark's radius.
                     if (chest.position.dst(lm.position) < lm.radius) {
-                        System.out.println("Removing landmark hint: " + lm.name + " (treasure collected)");
+                        System.out.println("Removing landmark hint: " + lm.name + " (treasure collected by AI)");
                         iter.remove();
-                        // Optionally break if each treasure should only remove one landmark:
                         break;
                     }
                 }
@@ -794,36 +696,82 @@ public class GameScreen implements Screen {
         resetTimer();
     }
 
-    private boolean isWalkable(Vector2 pos) {
+    boolean isWalkable(Vector2 pos) {
+        // --- 1. Check if position is within map bounds ---
+        int mapTileWidth = tiledMap.getProperties().get("width", Integer.class);
+        int mapTileHeight = tiledMap.getProperties().get("height", Integer.class);
+        int mapPixelWidth = mapTileWidth * tileWidth;
+        int mapPixelHeight = mapTileHeight * tileHeight;
+
+        if (pos.x < 0 || pos.y < 0 || pos.x >= mapPixelWidth || pos.y >= mapPixelHeight) {
+            return false; // Out of map bounds
+        }
+
+        // --- 2. Check if we're on at least one walkable layer ---
+        String[] walkableLayers = {"Green Patch", "Grass", "Path"};
+        boolean onWalkableLayer = false;
+
+        for (String layerName : walkableLayers) {
+            MapLayer layerRaw = tiledMap.getLayers().get(layerName);
+            if (layerRaw instanceof TiledMapTileLayer) {
+                TiledMapTileLayer layer = (TiledMapTileLayer) layerRaw;
+                int tileX = (int)(pos.x / tileWidth);
+                int tileY = (int)(pos.y / tileHeight);
+                TiledMapTileLayer.Cell cell = layer.getCell(tileX, tileY);
+
+                if (cell != null && cell.getTile() != null && cell.getTile().getId() != 0) {
+                    onWalkableLayer = true;
+                    break;
+                }
+            }
+        }
+
+        if (!onWalkableLayer) {
+            return false; // Not on any walkable layer
+        }
+
+        // --- 3. Check if we're on any collidable layer ---
+        for (int i = 0; i < tiledMap.getLayers().size(); i++) {
+            MapLayer layer = tiledMap.getLayers().get(i);
+            if (layer instanceof TiledMapTileLayer &&
+                Boolean.TRUE.equals(layer.getProperties().get("collidable"))) {
+
+                TiledMapTileLayer tileLayer = (TiledMapTileLayer) layer;
+                int tileX = (int)(pos.x / tileWidth);
+                int tileY = (int)(pos.y / tileHeight);
+                TiledMapTileLayer.Cell cell = tileLayer.getCell(tileX, tileY);
+
+                if (cell != null && cell.getTile() != null && cell.getTile().getId() != 0) {
+                    return false; // On a collidable tile
+                }
+            }
+        }
+
+        // --- 4. Check collision objects ---
         MapLayer collisionLayer = tiledMap.getLayers().get("Collision");
-        if (collisionLayer == null) {
-            return true;
+        if (collisionLayer != null) {
+            MapObjects objects = collisionLayer.getObjects();
+            for (MapObject object : objects) {
+                if (object instanceof RectangleMapObject) {
+                    Rectangle rect = ((RectangleMapObject) object).getRectangle();
+                    if (rect.contains(pos.x, pos.y)) {
+                        return false;
+                    }
+                } else if (object instanceof PolygonMapObject) {
+                    Polygon polygon = ((PolygonMapObject) object).getPolygon();
+                    if (polygon.contains(pos.x, pos.y)) {
+                        return false;
+                    }
+                } else if (object instanceof EllipseMapObject) {
+                    Ellipse ellipse = ((EllipseMapObject) object).getEllipse();
+                    if (ellipse.contains(pos.x, pos.y)) {
+                        return false;
+                    }
+                }
+            }
         }
-        MapObjects objects = collisionLayer.getObjects();
-        for (MapObject object : objects) {
-            // Check for rectangular objects.
-            if (object instanceof RectangleMapObject) {
-                Rectangle rect = ((RectangleMapObject) object).getRectangle();
-                if (rect.contains(pos.x, pos.y)) {
-                    return false;
-                }
-            }
-            // Check for polygon objects.
-            else if (object instanceof PolygonMapObject) {
-                Polygon polygon = ((PolygonMapObject) object).getPolygon();
-                if (polygon.contains(pos.x, pos.y)) {
-                    return false;
-                }
-            }
-            // Check for ellipse objects.
-            else if (object instanceof EllipseMapObject) {
-                Ellipse ellipse = ((EllipseMapObject) object).getEllipse();
-                if (ellipse.contains(pos.x, pos.y)) {
-                    return false;
-                }
-            }
-            // If needed, you can add more shape checks (e.g., PolylineMapObject) here.
-        }
+
+        // All checks passed
         return true;
     }
 

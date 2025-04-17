@@ -1,266 +1,379 @@
 package com.th.game;
 
-import com.badlogic.gdx.math.Vector2;
+import com.badlogic.gdx.math.*;
+import com.badlogic.gdx.ai.steer.behaviors.*;
+import com.badlogic.gdx.ai.steer.*;
+import com.badlogic.gdx.ai.utils.Location;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
 import java.sql.SQLException;
-import java.util.*;
-import java.util.function.Function;
 
-public class SmartAI extends AIPlayer {
-    // Hotspot and target selection fields.
-    private List<Vector2> treasureHotspots;
-    private float baseSpeed;
-    Vector2 currentTarget;
-    private boolean boostActive = false; // Flag to indicate a one-time speed boost.
-    private float boostTimer = 0f;             // Remaining time for active boost.
-    private final float boostDuration = 3.0f;    // Duration for boost (e.g., 3 seconds)
-    private int updatesSinceHotspot = 0;              // Counter for target updates without using a hotspot.
-    private final int forceHotspotInterval = 3;         // Force hotspot use every 3 updates.
-    float targetUpdateTimer = 0;
-    float targetUpdateInterval = 3.0f; // Update target every 3 seconds.
+public class SmartAI extends AIPlayer implements Steerable<Vector2> {
+    private final String currentMapName;
     private Random random;
+    private Vector2 targetPosition;
+    private Vector2 linearVelocity;
+    private float angularVelocity;
+    private float maxLinearSpeed = 140f;
+    private float maxLinearAcceleration = 500f;
+    private float maxAngularSpeed = 5f;
+    private float maxAngularAcceleration = 10f;
+    private float zeroLinearSpeedThreshold = 0.1f;
+    private boolean tagged;
+    private float boundingRadius = 32f;
+
+    private float changeDirectionTimer = 0;
+    private final float DIRECTION_CHANGE_TIME = 2.5f; // Change direction every 2.5 seconds
+    private List<Vector2> historicalTreasureLocations;
+    private int currentPathIndex = 0;
+    private boolean isFollowingHistoricalPath = false;
     private Direction currentDirection = Direction.DOWN;
+    private float pathFollowingProbability = 0.7f; // 70% chance to follow historical paths
+    private float stuckTimer = 0f;
+    private Vector2 lastPosition = new Vector2();
+    private SteeringBehavior<Vector2> steeringBehavior;
+    private SteeringAcceleration<Vector2> steeringOutput;
 
-    // Map and region fields.
-    private int mapWidth, mapHeight;
-    private Vector2[][] regionTargets; // 9 regions (3x3 grid) with 3 targets per region.
-    private int[] regionVisitCounts;   // Track visits for each region.
-    private boolean hasVisitedTreasureLocation = false;
-    private Function<Vector2, Boolean> isWalkableFunction;
+    // Define possible movement directions
+    private final Vector2[] DIRECTIONS = {
+        new Vector2(0, 1),   // UP
+        new Vector2(0, -1),  // DOWN
+        new Vector2(-1, 0),  // LEFT
+        new Vector2(1, 0)    // RIGHT
+    };
 
-    // Speed boost fields.
-    private final float boostMultiplier = 1.5f;  // Speed multiplier during boost.
+    public SmartAI(Vector2 startPos, String mapName) {
+        super(startPos);
+        this.currentMapName = mapName;
+        this.random = new Random();
+        this.targetPosition = new Vector2(startPos);
+        this.linearVelocity = new Vector2();
+        this.historicalTreasureLocations = new ArrayList<>();
+        this.steeringOutput = new SteeringAcceleration<>(new Vector2());
+        this.lastPosition.set(startPos);
 
-    // Oscillation and edge handling.
-    private static final float DIRECTION_TOLERANCE = 5f; // Threshold for changing direction
-    private static final float EDGE_MARGIN = 32f;          // Margin from map edges
-    private static final float STUCK_THRESHOLD = 1f;       // Minimum movement threshold
-    private Vector2 previousPosition = new Vector2();
-
-    // Direction update cooldown to reduce jitter.
-    private static final float DIRECTION_COOLDOWN = 0.5f;   // In seconds
-    private float directionCooldownTimer = 0f;
-
-    public SmartAI(Vector2 position, String mapName) {
-        super(position);
-        this.baseSpeed = this.speed; // e.g., 150
-        treasureHotspots = new ArrayList<>();
-        random = new Random();
-        previousPosition.set(position);
-        loadTreasureHotspots(mapName);
+        // Load historical treasure locations from database
+        loadHistoricalTreasureLocations();
     }
 
-    // Set the walkable function.
-    public void setWalkableFunction(Function<Vector2, Boolean> isWalkable) {
-        this.isWalkableFunction = isWalkable;
-    }
-
-    // Set map dimensions, initialize regions and regional visit counts.
-    public void setMapDimensions(int width, int height) {
-        this.mapWidth = width;
-        this.mapHeight = height;
-        regionTargets = new Vector2[9][3];
-        regionVisitCounts = new int[9]; // All starting at 0.
-        int regionWidth = mapWidth / 3;
-        int regionHeight = mapHeight / 3;
-        for (int region = 0; region < 9; region++) {
-            int regionX = (region % 3) * regionWidth;
-            int regionY = (region / 3) * regionHeight;
-            for (int i = 0; i < 3; i++) {
-                regionTargets[region][i] = findWalkablePositionInRegion(regionX, regionY, regionWidth, regionHeight);
-            }
-        }
-    }
-
-    // Find a walkable position in a region; fallback to region center.
-    private Vector2 findWalkablePositionInRegion(int regionX, int regionY, int width, int height) {
-        for (int attempt = 0; attempt < 10; attempt++) {
-            float x = regionX + random.nextFloat() * width;
-            float y = regionY + random.nextFloat() * height;
-            Vector2 pos = new Vector2(x, y);
-            if (isWalkableFunction != null && isWalkableFunction.apply(pos)) {
-                return pos;
-            }
-        }
-        return new Vector2(regionX + width / 2f, regionY + height / 2f);
-    }
-
-    // Load treasure hotspots.
-    private void loadTreasureHotspots(String mapName) {
+    private void loadHistoricalTreasureLocations() {
         try {
-            List<TreasureCollectionData> collections = TrainingDataDAO.getCollectionDataByMap(mapName);
-            if (collections.size() >= 3) {
-                for (TreasureCollectionData data : collections) {
-                    treasureHotspots.add(data.getTreasurePosition());
-                }
-                hasVisitedTreasureLocation = true;
-                System.out.println("Loaded " + treasureHotspots.size() + " treasure hotspots for AI");
-            } else {
-                System.out.println("Not enough collection data for map: " + mapName);
-                hasVisitedTreasureLocation = false;
+            List<TreasureCollectionData> collections = TrainingDataDAO.getCollectionDataByMap(currentMapName);
+            for (TreasureCollectionData data : collections) {
+                historicalTreasureLocations.add(data.getTreasurePosition());
             }
+            System.out.println("Loaded " + historicalTreasureLocations.size() + " historical treasure locations for map: " + currentMapName);
         } catch (SQLException e) {
-            System.err.println("Error loading treasure hotspots: " + e.getMessage());
+            System.err.println("Failed to load historical treasure data: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
-    // Trigger a one-frame speed boost.
-    public void triggerSpeedBoost() {
-        boostTimer = boostDuration;
-    }
+    public void update(float delta, GameScreen gameScreen) {
+        // Check if we're stuck
+        checkIfStuck(delta);
 
+        // Update timers
+        changeDirectionTimer += delta;
 
-    // Update method: called each frame.
-    public void update(float delta, Vector2 playerPosition, ArrayList<TreasureChest> treasureChests, boolean isAreaWalkable) {
-        // Set speed based on boost flag.
-        if (boostTimer > 0) {
-            speed = baseSpeed * boostMultiplier;
-            boostTimer -= delta;
-        } else {
-            speed = baseSpeed;
+        // Check if it's time to change direction or target
+        if (changeDirectionTimer >= DIRECTION_CHANGE_TIME ||
+            position.dst(targetPosition) < 10 ||
+            stuckTimer > 1.0f) {
+
+            changeDirectionTimer = 0;
+            stuckTimer = 0;
+            lastPosition.set(position);
+
+            // Decide whether to follow historical paths or explore randomly
+            if (historicalTreasureLocations.size() > 0 && random.nextFloat() < pathFollowingProbability) {
+                // Follow historical treasure locations
+                if (!isFollowingHistoricalPath || currentPathIndex >= historicalTreasureLocations.size()) {
+                    isFollowingHistoricalPath = true;
+                    currentPathIndex = random.nextInt(historicalTreasureLocations.size());
+                }
+
+                Vector2 historicalTarget = historicalTreasureLocations.get(currentPathIndex);
+
+                // Adjust target if not walkable
+                if (!gameScreen.isWalkable(historicalTarget)) {
+                    // Find nearby walkable location
+                    float searchRadius = 50f;
+                    Vector2 bestTarget = findNearbyWalkablePosition(historicalTarget, searchRadius, gameScreen);
+                    if (bestTarget != null) {
+                        targetPosition = bestTarget;
+                    } else {
+                        // If can't find walkable position near historical target, choose random
+                        chooseRandomDirection(gameScreen);
+                    }
+                } else {
+                    targetPosition = historicalTarget;
+                }
+
+                // Move to next location in history for next update
+                currentPathIndex = (currentPathIndex + 1) % historicalTreasureLocations.size();
+            } else {
+                // Random exploration
+                isFollowingHistoricalPath = false;
+                chooseRandomDirection(gameScreen);
+            }
+
+            // Setup steering behavior
+            setupSteeringBehavior(gameScreen);
         }
 
-        targetUpdateTimer += delta;
-        directionCooldownTimer -= delta;
+        // Apply steering behavior
+        if (steeringBehavior != null) {
+            steeringBehavior.calculateSteering(steeringOutput);
+            applySteering(steeringOutput, delta, gameScreen);
+        } else {
+            // Fallback to basic movement
+            moveTowardsTarget(delta, gameScreen);
+        }
 
-        // Update target if needed.
-        if (currentTarget == null || targetUpdateTimer >= targetUpdateInterval || position.dst(currentTarget) < 32) {
-            targetUpdateTimer = 0;
-            updatesSinceHotspot++;
-            boolean useHotspot = false;
-            float hotspotProbability = Math.min(1.0f, 0.3f + 0.05f * treasureHotspots.size());
-            if (hasVisitedTreasureLocation && !treasureHotspots.isEmpty()) {
-                if (random.nextFloat() < hotspotProbability || updatesSinceHotspot >= forceHotspotInterval) {
-                    useHotspot = true;
+        // Update direction for animation based on velocity
+        updateDirection();
+    }
+
+    private void checkIfStuck(float delta) {
+        if (position.dst(lastPosition) < 2f) {
+            stuckTimer += delta;
+        } else {
+            stuckTimer = 0;
+            lastPosition.set(position);
+        }
+    }
+
+    private Vector2 findNearbyWalkablePosition(Vector2 center, float radius, GameScreen gameScreen) {
+        Vector2 bestPos = null;
+        float bestDistance = Float.MAX_VALUE;
+
+        // Try the 4 cardinal directions at different distances
+        for (int dist = 10; dist <= radius; dist += 10) {
+            for (Vector2 dir : DIRECTIONS) {
+                Vector2 testPos = new Vector2(center).add(dir.x * dist, dir.y * dist);
+                if (gameScreen.isWalkable(testPos)) {
+                    float distance = center.dst(testPos);
+                    if (distance < bestDistance) {
+                        bestDistance = distance;
+                        bestPos = new Vector2(testPos);
+                    }
                 }
             }
-            if (useHotspot) {
-                currentTarget = treasureHotspots.get(random.nextInt(treasureHotspots.size()));
-                updatesSinceHotspot = 0;
-            } else {
-                chooseRegionalTarget();
-            }
-            ensureWalkableTarget();
-            if (directionCooldownTimer <= 0) {
-                updateDirectionToTarget();
-                directionCooldownTimer = DIRECTION_COOLDOWN;
+
+            // If we found a position, return it
+            if (bestPos != null) {
+                return bestPos;
             }
         }
 
-        // Edge avoidance: if near the border, choose a central target.
-        if (position.x < EDGE_MARGIN || position.x > mapWidth - EDGE_MARGIN ||
-            position.y < EDGE_MARGIN || position.y > mapHeight - EDGE_MARGIN) {
-            currentTarget = new Vector2(mapWidth / 2f, mapHeight / 2f);
-            updateDirectionToTarget();
-            directionCooldownTimer = DIRECTION_COOLDOWN;
-        }
-
-        // Check if the AI is stuck (hasn't moved sufficiently).
-        if (position.dst(previousPosition) < STUCK_THRESHOLD) {
-            chooseRegionalTarget();
-            ensureWalkableTarget();
-            updateDirectionToTarget();
-            directionCooldownTimer = DIRECTION_COOLDOWN;
-        }
-        previousPosition.set(position);
-
-        // Before moving, check if the next step is walkable.
-        Vector2 nextStep = position.cpy().add(getMovementDirection().scl(speed * delta));
-        if (isWalkableFunction != null && !isWalkableFunction.apply(nextStep)) {
-            chooseRegionalTarget();
-            ensureWalkableTarget();
-            updateDirectionToTarget();
-            directionCooldownTimer = DIRECTION_COOLDOWN;
-        }
-
-        // Finally, move strictly in the current cardinal direction.
-        position.add(getMovementDirection().scl(speed * delta));
+        // No walkable position found
+        return null;
     }
 
-    // Choose a regional target that favors less-explored areas.
-    private void chooseRegionalTarget() {
-        int minVisitCount = Integer.MAX_VALUE;
-        List<Integer> candidateRegions = new ArrayList<>();
-        for (int region = 0; region < regionVisitCounts.length; region++) {
-            if (regionVisitCounts[region] < minVisitCount) {
-                minVisitCount = regionVisitCounts[region];
-                candidateRegions.clear();
-                candidateRegions.add(region);
-            } else if (regionVisitCounts[region] == minVisitCount) {
-                candidateRegions.add(region);
+    private void setupSteeringBehavior(final GameScreen gameScreen) {
+        // Create a target for the AI to move towards
+        final Steerable<Vector2> targetActor = new Steerable<Vector2>() {
+            private Vector2 position = new Vector2(targetPosition);
+
+            @Override public Vector2 getPosition() { return position; }
+            @Override public float getOrientation() { return 0; }
+
+            @Override
+            public void setOrientation(float v) {
+
             }
-        }
-        int chosenRegion = candidateRegions.get(random.nextInt(candidateRegions.size()));
-        regionVisitCounts[chosenRegion]++;
-        int targetIndex = random.nextInt(3);
-        currentTarget = regionTargets[chosenRegion][targetIndex];
+
+            @Override public Vector2 getLinearVelocity() { return new Vector2(); }
+            @Override public float getAngularVelocity() { return 0; }
+            @Override public float getBoundingRadius() { return 0; }
+            @Override public boolean isTagged() { return false; }
+            @Override public void setTagged(boolean tagged) { }
+            @Override public float getMaxLinearSpeed() { return 0; }
+            @Override public void setMaxLinearSpeed(float maxLinearSpeed) { }
+            @Override public float getMaxLinearAcceleration() { return 0; }
+            @Override public void setMaxLinearAcceleration(float maxLinearAcceleration) { }
+            @Override public float getMaxAngularSpeed() { return 0; }
+            @Override public void setMaxAngularSpeed(float maxAngularSpeed) { }
+            @Override public float getMaxAngularAcceleration() { return 0; }
+            @Override public void setMaxAngularAcceleration(float maxAngularAcceleration) { }
+            @Override public float getZeroLinearSpeedThreshold() { return 0; }
+            @Override public void setZeroLinearSpeedThreshold(float value) { }
+            public Vector2 newVector() { return new Vector2(); }
+            @Override public float vectorToAngle(Vector2 vector) { return (float)Math.atan2(-vector.x, vector.y); }
+            @Override public Vector2 angleToVector(Vector2 outVector, float angle) {
+                outVector.x = -(float)Math.sin(angle);
+                outVector.y = (float)Math.cos(angle);
+                return outVector;
+            }
+
+            @Override
+            public Location<Vector2> newLocation() {
+                return null;
+            }
+        };
+
+        // Create a seek behavior (tries to reach the target)
+        Seek<Vector2> seekBehavior = new Seek<>(this, targetActor);
+
+        // Create the arrive behavior (slows down as it approaches target)
+        Arrive<Vector2> arriveBehavior = new Arrive<>(this, targetActor)
+            .setTimeToTarget(0.1f)
+            .setArrivalTolerance(5f)
+            .setDecelerationRadius(50f);
+
+        // Set the seek behavior as our steering behavior
+        steeringBehavior = arriveBehavior;
     }
 
-    // Ensure the target is walkable; if not, adjust.
-    private void ensureWalkableTarget() {
-        if (currentTarget == null || isWalkableFunction == null) return;
-        if (!isWalkableFunction.apply(currentTarget)) {
-            for (int attempt = 0; attempt < 8; attempt++) {
-                float angle = attempt * (360f / 8);
-                float distance = 50;
-                float x = currentTarget.x + (float)Math.cos(Math.toRadians(angle)) * distance;
-                float y = currentTarget.y + (float)Math.sin(Math.toRadians(angle)) * distance;
-                x = Math.min(Math.max(x, 0), mapWidth - 1);
-                y = Math.min(Math.max(y, 0), mapHeight - 1);
-                Vector2 newTarget = new Vector2(x, y);
-                if (isWalkableFunction.apply(newTarget)) {
-                    currentTarget = newTarget;
+    private void applySteering(SteeringAcceleration<Vector2> steering, float delta, GameScreen gameScreen) {
+        // Update position and linear velocity
+        Vector2 oldPosition = new Vector2(position);
+
+        // Apply linear acceleration
+        linearVelocity.x += steering.linear.x * delta;
+        linearVelocity.y += steering.linear.y * delta;
+
+        // Cap the linear speed
+        float speed = linearVelocity.len();
+        if (speed > maxLinearSpeed) {
+            linearVelocity.scl(maxLinearSpeed / speed);
+        }
+
+        // Apply damping to gradually reduce speed when not accelerating
+        if (steering.linear.len() < 0.01f) {
+            float dampingFactor = 0.9f;
+            linearVelocity.scl(dampingFactor);
+        }
+
+        // CARDINAL MOVEMENT FIX: Force movement to be cardinal (horizontal OR vertical, not both)
+        if (Math.abs(linearVelocity.x) > Math.abs(linearVelocity.y)) {
+            // Horizontal movement is dominant, zero out vertical
+            linearVelocity.y = 0;
+        } else {
+            // Vertical movement is dominant, zero out horizontal
+            linearVelocity.x = 0;
+        }
+
+        // Move position based on velocity
+        position.x += linearVelocity.x * delta;
+        position.y += linearVelocity.y * delta;
+
+        // Check if the new position is walkable
+        if (!gameScreen.isWalkable(position)) {
+            position.set(oldPosition);
+            linearVelocity.set(0, 0);
+            changeDirectionTimer = DIRECTION_CHANGE_TIME; // Force direction change
+        }
+    }
+    private void chooseRandomDirection(GameScreen gameScreen) {
+        // Shuffle the directions to try them in a random order
+        List<Integer> indices = new ArrayList<>();
+        for (int i = 0; i < DIRECTIONS.length; i++) {
+            indices.add(i);
+        }
+
+        java.util.Collections.shuffle(indices, random);
+
+        // Try different directions and distances
+        float[] distances = {200f, 160f, 100f, 64f, 32f};
+
+        for (float moveDistance : distances) {
+            for (int i : indices) {
+                Vector2 direction = DIRECTIONS[i];
+                Vector2 newTarget = new Vector2(position).add(direction.x * moveDistance, direction.y * moveDistance);
+
+                // Check if the path is walkable
+                boolean pathClear = true;
+                Vector2 step = new Vector2();
+                int steps = 5; // Check 5 points along the path
+
+                for (int j = 1; j <= steps; j++) {
+                    float t = j / (float)steps;
+                    step.set(position).lerp(newTarget, t);
+
+                    if (!gameScreen.isWalkable(step)) {
+                        pathClear = false;
+                        break;
+                    }
+                }
+
+                if (pathClear) {
+                    targetPosition = newTarget;
+
+                    // Update direction for animation
+                    if (direction.y > 0) currentDirection = Direction.UP;
+                    else if (direction.y < 0) currentDirection = Direction.DOWN;
+                    else if (direction.x < 0) currentDirection = Direction.LEFT;
+                    else if (direction.x > 0) currentDirection = Direction.RIGHT;
+
                     return;
                 }
             }
-            chooseRegionalTarget();
+        }
+
+        // If all attempts failed, stay in place but reset the stuck timer
+        targetPosition = new Vector2(position);
+    }
+
+    private void moveTowardsTarget(float delta, GameScreen gameScreen) {
+        Vector2 oldPosition = new Vector2(position);
+
+        // Calculate vector to target
+        Vector2 toTarget = new Vector2(targetPosition).sub(position);
+
+        // Determine cardinal direction (moving only horizontally OR vertically)
+        Vector2 moveDir = new Vector2(0, 0);
+
+        // Decide which cardinal direction to move based on distance
+        if (Math.abs(toTarget.x) > Math.abs(toTarget.y)) {
+            // Move horizontally
+            if (toTarget.x > 0) {
+                moveDir.x = 1;
+                currentDirection = Direction.RIGHT;
+            } else if (toTarget.x < 0) {
+                moveDir.x = -1;
+                currentDirection = Direction.LEFT;
+            }
+        } else {
+            // Move vertically
+            if (toTarget.y > 0) {
+                moveDir.y = 1;
+                currentDirection = Direction.UP;
+            } else if (toTarget.y < 0) {
+                moveDir.y = -1;
+                currentDirection = Direction.DOWN;
+            }
+        }
+
+        // Move in the chosen cardinal direction
+        float speed = 120f;
+        position.add(moveDir.x * speed * delta, moveDir.y * speed * delta);
+
+        // If new position is not walkable, revert to old position
+        if (!gameScreen.isWalkable(position)) {
+            position.set(oldPosition);
+            changeDirectionTimer = DIRECTION_CHANGE_TIME; // Force direction change
         }
     }
 
-    // Update the currentDirection based on the target, with a tolerance to reduce jitter.
-// Update the currentDirection based on the target, with additional checks to avoid rapid oscillations.
-    private void updateDirectionToTarget() {
-        Vector2 diff = currentTarget.cpy().sub(position);
-        Direction desiredDirection;
-
-        // Determine the desired direction based on which axis has a significantly larger difference.
-        if (Math.abs(diff.x) >= Math.abs(diff.y) + DIRECTION_TOLERANCE) {
-            desiredDirection = diff.x > 0 ? Direction.RIGHT : Direction.LEFT;
-        } else if (Math.abs(diff.y) >= Math.abs(diff.x) + DIRECTION_TOLERANCE) {
-            desiredDirection = diff.y > 0 ? Direction.UP : Direction.DOWN;
-        } else {
-            desiredDirection = currentDirection; // If differences are minimal, maintain direction.
-        }
-
-        // Check if the new desired direction is opposite to the current direction.
-        boolean isOpposite = (desiredDirection == Direction.UP && currentDirection == Direction.DOWN) ||
-            (desiredDirection == Direction.DOWN && currentDirection == Direction.UP) ||
-            (desiredDirection == Direction.LEFT && currentDirection == Direction.RIGHT) ||
-            (desiredDirection == Direction.RIGHT && currentDirection == Direction.LEFT);
-
-        // Only switch if not an immediate reversal OR if the AI is very close to the target (thus requiring a change).
-        if (isOpposite && diff.len() > 32) {
-            // Do not update; keep the current direction to prevent oscillation.
-            return;
-        } else {
-            currentDirection = desiredDirection;
-        }
-    }
-
-
-    // Return a cardinal unit vector based on currentDirection.
-    public Vector2 getMovementDirection() {
-        switch (currentDirection) {
-            case UP:
-                return new Vector2(0, 1);
-            case DOWN:
-                return new Vector2(0, -1);
-            case LEFT:
-                return new Vector2(-1, 0);
-            case RIGHT:
-                return new Vector2(1, 0);
-            default:
-                return new Vector2(0, 0);
+    private void updateDirection() {
+        // Update direction based on velocity for more responsive animation
+        if (linearVelocity.len2() > 0.1f) {
+            if (Math.abs(linearVelocity.x) > Math.abs(linearVelocity.y)) {
+                if (linearVelocity.x > 0) {
+                    currentDirection = Direction.RIGHT;
+                } else {
+                    currentDirection = Direction.LEFT;
+                }
+            } else {
+                if (linearVelocity.y > 0) {
+                    currentDirection = Direction.UP;
+                } else {
+                    currentDirection = Direction.DOWN;
+                }
+            }
         }
     }
 
@@ -268,10 +381,115 @@ public class SmartAI extends AIPlayer {
         return currentDirection;
     }
 
-    // Add a new hotspot (if treasure is collected, etc.).
-    public void addTreasureHotspot(Vector2 treasurePos) {
-        treasureHotspots.add(new Vector2(treasurePos));
-        hasVisitedTreasureLocation = true;
+    // Steerable interface methods
+    @Override
+    public Vector2 getPosition() {
+        return position;
     }
 
+    @Override
+    public float getOrientation() {
+        return 0;
+    }
+
+    @Override
+    public void setOrientation(float v) {
+
+    }
+
+    @Override
+    public Vector2 getLinearVelocity() {
+        return linearVelocity;
+    }
+
+    @Override
+    public float getAngularVelocity() {
+        return angularVelocity;
+    }
+
+    @Override
+    public float getBoundingRadius() {
+        return boundingRadius;
+    }
+
+    @Override
+    public boolean isTagged() {
+        return tagged;
+    }
+
+    @Override
+    public void setTagged(boolean tagged) {
+        this.tagged = tagged;
+    }
+
+    @Override
+    public float getMaxLinearSpeed() {
+        return maxLinearSpeed;
+    }
+
+    @Override
+    public void setMaxLinearSpeed(float maxLinearSpeed) {
+        this.maxLinearSpeed = maxLinearSpeed;
+    }
+
+    @Override
+    public float getMaxLinearAcceleration() {
+        return maxLinearAcceleration;
+    }
+
+    @Override
+    public void setMaxLinearAcceleration(float maxLinearAcceleration) {
+        this.maxLinearAcceleration = maxLinearAcceleration;
+    }
+
+    @Override
+    public float getMaxAngularSpeed() {
+        return maxAngularSpeed;
+    }
+
+    @Override
+    public void setMaxAngularSpeed(float maxAngularSpeed) {
+        this.maxAngularSpeed = maxAngularSpeed;
+    }
+
+    @Override
+    public float getMaxAngularAcceleration() {
+        return maxAngularAcceleration;
+    }
+
+    @Override
+    public void setMaxAngularAcceleration(float maxAngularAcceleration) {
+        this.maxAngularAcceleration = maxAngularAcceleration;
+    }
+
+    @Override
+    public float getZeroLinearSpeedThreshold() {
+        return zeroLinearSpeedThreshold;
+    }
+
+    @Override
+    public void setZeroLinearSpeedThreshold(float value) {
+        this.zeroLinearSpeedThreshold = value;
+    }
+
+    public Vector2 newVector() {
+        return new Vector2();
+    }
+
+    @Override
+    public float vectorToAngle(Vector2 vector) {
+        return (float)Math.atan2(-vector.x, vector.y);
+    }
+
+    @Override
+    public Vector2 angleToVector(Vector2 outVector, float angle) {
+        outVector.x = -(float)Math.sin(angle);
+        outVector.y = (float)Math.cos(angle);
+        return outVector;
+    }
+
+    @Override
+    public Location<Vector2> newLocation() {
+        return null;
+    }
 }
