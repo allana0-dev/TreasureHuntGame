@@ -3,6 +3,8 @@ package com.th.game;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
 import com.badlogic.gdx.Screen;
+import com.badlogic.gdx.audio.Music;
+import com.badlogic.gdx.audio.Sound;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
@@ -61,6 +63,11 @@ public class GameScreen implements Screen {
     private float hintCooldown = 0f;
     private final float HINT_COOLDOWN_DURATION = 15f; // 15 seconds between hints
     private boolean hintAvailable = true;
+    private Sound collectSound;
+    private Music duringGameMusic;
+    private Sound hintSound;
+
+
 
     // --- AI fields ---
 // at top of GameScreen
@@ -623,6 +630,7 @@ public class GameScreen implements Screen {
             for (TreasureChest chest : treasureChests) {
                 if (chest.state == TreasureChest.ChestState.CLOSED &&
                     player.position.dst(chest.position) < 32) {
+                    collectSound.play(0.8f);
                     chest.open();
                     player.score++;
 
@@ -655,6 +663,7 @@ public class GameScreen implements Screen {
             if (!currentHint.isEmpty()) {
                 // Reset hint display state
                 hintVisible = true;
+                hintSound.play(0.8f);
                 currentHintDisplayTimer = 0f;
 
                 // Start cooldown
@@ -690,6 +699,7 @@ public class GameScreen implements Screen {
         for (TreasureChest chest : treasureChests) {
             if (chest.state == TreasureChest.ChestState.CLOSED &&
                 ai.position.dst(chest.position) < 32) {
+                collectSound.play(0.8f);
                 chest.open();
                 ai.score++;
 
@@ -951,10 +961,25 @@ public class GameScreen implements Screen {
         camera.viewportHeight = height;
         camera.update();
     }
-    @Override public void show() { }
+    @Override public void show() {
+        collectSound = Gdx.audio.newSound(Gdx.files.internal("sfx/collecttreasure.ogg"));
+        hintSound = Gdx.audio.newSound(Gdx.files.internal("sfx/hint.ogg"));
+        duringGameMusic = Gdx.audio.newMusic(
+            Gdx.files.internal("music/duringgamemusic.ogg")
+        );
+        duringGameMusic.setLooping(true);
+        duringGameMusic.setVolume(0.5f);  // adjust to taste
+        duringGameMusic.play();
+
+    }
     @Override public void pause() { }
     @Override public void resume() { }
-    @Override public void hide() { }
+    @Override public void hide() {
+
+        if (duringGameMusic != null && duringGameMusic.isPlaying()) {
+            duringGameMusic.dispose();
+        }
+    }
 
     @Override
     public void dispose() {
@@ -966,5 +991,9 @@ public class GameScreen implements Screen {
         for (TreasureChest chest : treasureChests) {
             chest.dispose();
         }
+        if (duringGameMusic != null) {
+            duringGameMusic.dispose();
+        }
+
     }
 }
