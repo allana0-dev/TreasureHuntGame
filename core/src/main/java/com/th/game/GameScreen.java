@@ -38,6 +38,10 @@ public class GameScreen implements Screen {
     private Main game;
     private GameSettings settings;
     private String currentMapName;
+    private boolean showingRoundPopup = false;
+    private float roundPopupTimer = 0f;
+    private final float ROUND_POPUP_DURATION = 2.5f; // Show popup for 2.5 seconds
+    private BitmapFont largeFont; // For round popup text
 
 
     // Map & rendering objects.
@@ -112,6 +116,11 @@ public class GameScreen implements Screen {
         this.settings = settings;
         random = new Random();
 
+
+
+        showingRoundPopup = true;
+        roundPopupTimer = 0f;
+
         if (settings.gameMode == GameSettings.GameMode.TIMER) {
             resetTimer();
         }
@@ -123,11 +132,6 @@ public class GameScreen implements Screen {
             e.printStackTrace();
         }
 
-        // --- Load Tile Map ---
-
-        // --- Determine which map to load ---
-        // Store the selected map name
-// --- Determine which map to load ---
         MapManager.MapInfo selectedMap = null;
         if (settings.mapType == GameSettings.MapType.RANDOM) {
             selectedMap = MapManager.getRandomMap();
@@ -191,13 +195,13 @@ public class GameScreen implements Screen {
         playerWalkUp.setPlayMode(Animation.PlayMode.LOOP);
 
         // --- Initialize Player position in a walkable area ---
-        do {
-            player = new Player(new Vector2(random.nextInt(mapPixelWidth), random.nextInt(mapPixelHeight)));
-        } while (!isWalkable(player.position));
+        float playerX = 3 * tileWidth + (tileWidth / 2);
+        float playerY = 14 * tileHeight + (tileHeight / 2);
+        player = new Player(new Vector2(playerX, playerY));
 
-        do {
-            ai = new SmartAI(new Vector2(random.nextInt(mapPixelWidth), random.nextInt(mapPixelHeight)), currentMapName);
-        } while (!isWalkable(ai.position));
+        float aiX = 5 * tileWidth + (tileWidth / 2);
+        float aiY = 14 * tileHeight + (tileHeight / 2);
+        ai = new SmartAI(new Vector2(aiX, aiY), currentMapName);
 
         ai.scanWalkableAreas(this, tiledMap);
 
@@ -254,6 +258,9 @@ public class GameScreen implements Screen {
         batch = new SpriteBatch();
         font = new BitmapFont();
         shapeRenderer = new ShapeRenderer();
+        // In the GameScreen constructor, after initializing the regular font, add:
+        largeFont = new BitmapFont();
+        largeFont.getData().setScale(2.0f); // Make it twice as large as the normal font
 
         // Removed AI initialization.
     }
@@ -444,7 +451,12 @@ public class GameScreen implements Screen {
         }
         batch.draw(playerFrame, player.position.x, player.position.y, 40, 50);
 
-        // --- Render the AI ---
+// Draw "YOU" label above player
+        font.setColor(Color.GREEN);
+        font.draw(batch, "YOU", player.position.x + 10, player.position.y + 70);
+        font.setColor(Color.WHITE);
+
+// --- Render the AI with a label above ---
         TextureRegion aiFrame;
         switch (aiDirection) {
             case LEFT:
@@ -463,11 +475,78 @@ public class GameScreen implements Screen {
         }
         batch.draw(aiFrame, ai.position.x, ai.position.y, 64, 64);
 
+// Draw "AI" label above the AI
+        font.setColor(Color.RED);
+        font.draw(batch, "AI", ai.position.x + 25, ai.position.y + 80);
+        font.setColor(Color.WHITE);
+
         // --- Draw Heads Up Display (HUD) ---
 // Scores at the top left
         font.draw(batch, "Player Score: " + player.score, camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 20);
         font.draw(batch, "AI Score: " + ai.score, camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 40);
 
+        font.draw(batch, "Round: " + currentRound + "/" + settings.totalRounds,
+            camera.position.x + 250, camera.position.y + (camera.viewportHeight / 2f) - 40);
+
+        // Draw round start popup if active
+        if (showingRoundPopup) {
+            // Update the popup timer
+            roundPopupTimer += delta;
+            if (roundPopupTimer >= ROUND_POPUP_DURATION) {
+                showingRoundPopup = false;
+            }
+
+            // Calculate fade effect for smooth appearance/disappearance
+            float alpha = 1.0f;
+            if (roundPopupTimer < 0.5f) {
+                // Fade in
+                alpha = roundPopupTimer / 0.5f;
+            } else if (roundPopupTimer > ROUND_POPUP_DURATION - 0.5f) {
+                // Fade out
+                alpha = (ROUND_POPUP_DURATION - roundPopupTimer) / 0.5f;
+            }
+
+            // Save current color
+            Color prevColor = largeFont.getColor();
+
+            // Draw semi-transparent black background for popup
+            batch.end(); // End the sprite batch to switch to shape renderer
+
+            Gdx.gl.glEnable(GL20.GL_BLEND);
+            Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+
+            shapeRenderer.setProjectionMatrix(camera.combined);
+            shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+            shapeRenderer.setColor(0, 0, 0, 0.7f * alpha);
+
+            // Draw background rectangle centered on screen
+            float boxWidth = 400;
+            float boxHeight = 100;
+            shapeRenderer.rect(
+                camera.position.x - boxWidth/2,
+                camera.position.y - boxHeight/2,
+                boxWidth, boxHeight
+            );
+
+            shapeRenderer.end();
+            Gdx.gl.glDisable(GL20.GL_BLEND);
+
+            // Start the sprite batch again to draw text
+            batch.begin();
+
+            // Draw round announcement text
+            largeFont.setColor(1, 1, 1, alpha); // White text with fade effect
+            String roundText = "ROUND " + currentRound;
+            float textWidth = largeFont.draw(batch, roundText, 0, 0).width; // Measure text width
+
+            largeFont.draw(batch, roundText,
+                camera.position.x - textWidth / 2, // Center text horizontally
+                camera.position.y + 10  // Slight offset from center for better appearance
+            );
+
+            // Reset font color
+            largeFont.setColor(prevColor);
+        }
 // Hint button below scores
         if (hintAvailable) {
             font.draw(batch, "Press H for Hint", camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 60);
@@ -485,6 +564,8 @@ public class GameScreen implements Screen {
             font.draw(batch, currentHint, camera.position.x - 200, camera.position.y + (camera.viewportHeight / 2f) - 20);
             font.setColor(prevColor);
         }
+
+
 
 
 // Timer at top right (unchanged)
@@ -508,7 +589,6 @@ public class GameScreen implements Screen {
         return "";
     }
 
-    // Update the main update method to call the modified updateAI
 // Make sure hint processing passes the landmarks to the AI
     private void update(float delta) {
         // Update game logic, player movement, AI, etc.
@@ -517,27 +597,6 @@ public class GameScreen implements Screen {
 
         // Handle player input
         handlePlayerInput(delta);
-
-        // REMOVE THIS ENTIRE BLOCK - it's the automatic hint generation
-    /*
-    hintTimer += delta;
-    if (hintTimer >= HINT_INTERVAL) {
-        hintTimer = 0f; // reset timer
-        // Generate a new hint
-        currentHint = generateGlobalHint();
-
-        // If we have a valid hint, start displaying it
-        if (!currentHint.isEmpty()) {
-            hintVisible = true;
-            currentHintDisplayTimer = 0f;
-
-            // Pass the hint to the AI along with landmarks
-            if (ai != null && !currentHint.isEmpty()) {
-                ai.processHint(currentHint, landmarks);
-            }
-        }
-    }
-    */
 
         // Keep the hint display timing logic
         if (hintVisible) {
@@ -829,9 +888,13 @@ public class GameScreen implements Screen {
     }
 
     // Modify the resetRound method to rescan the map when resetting the round
+// In the GameScreen class, modify the resetRound method like this:
+// In GameScreen.java, modify the resetRound() method:
+
     private void resetRound() {
         player.score = 0;
         ai.score = 0;
+
         // Reset hint system
         currentHint = "";
         hintTimer = 0f;
@@ -840,25 +903,15 @@ public class GameScreen implements Screen {
         hintAvailable = true;
         hintCooldown = 0f;
 
-        int mapTileWidth = tiledMap.getProperties().get("width", Integer.class);
-        int mapTileHeight = tiledMap.getProperties().get("height", Integer.class);
-        int mapPixelWidth = mapTileWidth * tileWidth;
-        int mapPixelHeight = mapTileHeight * tileHeight;
+        // Convert tile coordinates to pixel coordinates
+        float playerX = 3 * tileWidth + (tileWidth / 2); // Center of tile 3
+        float playerY = 14 * tileHeight + (tileHeight / 2); // Center of tile 14
+        player.position.set(playerX, playerY);
 
-        // Reset player position with validation
-        Vector2 playerSpawnPos = SpawnLocationValidator.findValidSpawnLocation(
-            this, mapPixelWidth, mapPixelHeight, tileWidth, tileHeight, 100);
-        player.position.set(playerSpawnPos);
-
-        // Reset AI position with validation
-        Vector2 aiSpawnPos = SpawnLocationValidator.findValidSpawnLocation(
-            this, mapPixelWidth, mapPixelHeight, tileWidth, tileHeight, 100);
-        // Make sure AI doesn't spawn too close to player
-        while (aiSpawnPos.dst(playerSpawnPos) < 200) {
-            aiSpawnPos = SpawnLocationValidator.findValidSpawnLocation(
-                this, mapPixelWidth, mapPixelHeight, tileWidth, tileHeight, 100);
-        }
-        ai.position.set(aiSpawnPos);
+        // Place AI at a different but still valid location (e.g., 5, 14)
+        float aiX = 5 * tileWidth + (tileWidth / 2);
+        float aiY = 14 * tileHeight + (tileHeight / 2);
+        ai.position.set(aiX, aiY);
 
         // Reset hint system
         currentHint = "";
@@ -875,6 +928,8 @@ public class GameScreen implements Screen {
 
         // Reset round timer
         resetTimer();
+        showingRoundPopup = true;
+        roundPopupTimer = 0f;
     }
     boolean isWalkable(Vector2 pos) {
         // --- 1. Check if position is within map bounds ---
