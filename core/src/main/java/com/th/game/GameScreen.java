@@ -39,7 +39,7 @@ public class GameScreen implements Screen {
 
 
     // Map & rendering objects.
-    private TiledMap tiledMap;
+    TiledMap tiledMap;
     private OrthogonalTiledMapRenderer mapRenderer;
     private OrthographicCamera camera;
     private SpriteBatch batch;
@@ -52,7 +52,15 @@ public class GameScreen implements Screen {
     private String currentHint = "";      // The current hint message to display.
     private final float HINT_INTERVAL = 10f; // Interval for showing a new hint (10 seconds).
     private List<Landmark> landmarks = new ArrayList<>();
-
+    // Add these variables to the GameScreen class
+    private float hintDisplayDuration = 3.0f; // Show hint for 3 seconds
+    private float currentHintDisplayTimer = 0f; // Track current display time
+    private boolean hintVisible = false; // Is the hint currently visible
+    // Add to GameScreen class
+    private boolean hintButtonPressed = false;
+    private float hintCooldown = 0f;
+    private final float HINT_COOLDOWN_DURATION = 15f; // 15 seconds between hints
+    private boolean hintAvailable = true;
 
     // --- AI fields ---
 // at top of GameScreen
@@ -79,7 +87,7 @@ public class GameScreen implements Screen {
     private Direction playerDirection = Direction.DOWN;
 
     // --- Treasure chests ---
-    private ArrayList<TreasureChest> treasureChests;
+    ArrayList<TreasureChest> treasureChests;
 
     // Other game fields.
     private Random random;
@@ -184,19 +192,15 @@ public class GameScreen implements Screen {
             ai = new SmartAI(new Vector2(random.nextInt(mapPixelWidth), random.nextInt(mapPixelHeight)), currentMapName);
         } while (!isWalkable(ai.position));
 
+        ai.scanWalkableAreas(this, tiledMap);
+
 
 
 
 
         // --- Create Treasure Chests ---
         treasureChests = new ArrayList<>();
-        for (int i = 0; i < settings.treasureCount; i++) {
-            Vector2 pos;
-            do {
-                pos = new Vector2(random.nextInt(mapPixelWidth), random.nextInt(mapPixelHeight));
-            } while (!isWalkable(pos) || pos.dst(player.position) < 50);
-            treasureChests.add(new TreasureChest(pos, 8, 0.1f));
-        }
+        placeTreasuresScattered();
 
         // Set timer if in timer mode.
         if (settings.gameMode == GameSettings.GameMode.TIMER) {
@@ -247,9 +251,101 @@ public class GameScreen implements Screen {
         // Removed AI initialization.
     }
 
+    private void placeTreasuresScattered() {
+        treasureChests.clear();
+
+        // Get map dimensions
+        int mapTileWidth = tiledMap.getProperties().get("width", Integer.class);
+        int mapTileHeight = tiledMap.getProperties().get("height", Integer.class);
+        int mapPixelWidth = mapTileWidth * tileWidth;
+        int mapPixelHeight = mapTileHeight * tileHeight;
+
+        // Define an edge buffer so treasures aren't spawned too close to edges
+        int treasureEdgeBuffer = 50;
+
+        // Divide the map into sections based on treasure count
+        int gridSize = (int) Math.ceil(Math.sqrt(settings.treasureCount));
+        int cellWidth = (mapPixelWidth - 2 * treasureEdgeBuffer) / gridSize;
+        int cellHeight = (mapPixelHeight - 2 * treasureEdgeBuffer) / gridSize;
+
+        // Keep track of placed treasures
+        int placedTreasures = 0;
+
+        // First try to place one treasure per grid cell
+        List<Integer> cellIndices = new ArrayList<>();
+        for (int i = 0; i < gridSize * gridSize; i++) {
+            cellIndices.add(i);
+        }
+        java.util.Collections.shuffle(cellIndices, random);
+
+        for (int index : cellIndices) {
+            if (placedTreasures >= settings.treasureCount) break;
+
+            int gridX = index % gridSize;
+            int gridY = index / gridSize;
+
+            // Try multiple positions within each cell
+            for (int attempt = 0; attempt < 10; attempt++) {
+                int x = treasureEdgeBuffer + gridX * cellWidth + random.nextInt(cellWidth);
+                int y = treasureEdgeBuffer + gridY * cellHeight + random.nextInt(cellHeight);
+                Vector2 pos = new Vector2(x, y);
+
+                // Make sure it's walkable and not too close to player or other treasures
+                if (isWalkable(pos) && pos.dst(player.position) > 100 && !tooCloseToOtherTreasures(pos, 100)) {
+                    treasureChests.add(new TreasureChest(pos, 8, 0.1f));
+                    placedTreasures++;
+                    break;
+                }
+            }
+        }
+
+
+
+        // If we still need more treasures, place them randomly across the map
+        while (placedTreasures < settings.treasureCount) {
+            Vector2 pos = new Vector2(
+                random.nextInt(mapPixelWidth - 2 * treasureEdgeBuffer) + treasureEdgeBuffer,
+                random.nextInt(mapPixelHeight - 2 * treasureEdgeBuffer) + treasureEdgeBuffer
+            );
+
+            if (isWalkable(pos) && pos.dst(player.position) > 75 && !tooCloseToOtherTreasures(pos, 75)) {
+                treasureChests.add(new TreasureChest(pos, 8, 0.1f));
+                placedTreasures++;
+            }
+        }
+
+        System.out.println("Placed " + placedTreasures + " treasure chests scattered across the map");
+    }
+
+    // Helper method to check if a position is too close to existing treasures
+    private boolean tooCloseToOtherTreasures(Vector2 pos, float minDistance) {
+        for (TreasureChest chest : treasureChests) {
+            if (pos.dst(chest.position) < minDistance) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // Resets the countdown timer to the initial value from game settings.
     private void resetTimer() {
         this.countdownTimer = settings.timerDuration;
+    }
+
+    /**
+     * Returns the current hint text
+     * @return The current hint text
+     */
+    public String getCurrentHint() {
+        return currentHint;
+    }
+
+    /**
+     * Returns the list of landmarks in the map
+     * @return The list of landmarks
+     */
+    public List<Landmark> getLandmarks() {
+        return landmarks;
     }
 
 
@@ -361,13 +457,30 @@ public class GameScreen implements Screen {
         batch.draw(aiFrame, ai.position.x, ai.position.y, 64, 64);
 
         // --- Draw Heads Up Display (HUD) ---
+// Scores at the top left
         font.draw(batch, "Player Score: " + player.score, camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 20);
         font.draw(batch, "AI Score: " + ai.score, camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 40);
-        if (!currentHint.isEmpty()) {
-            // You can adjust the x,y position based on your camera or HUD layout.
-            font.draw(batch, currentHint, camera.position.x - 200, camera.position.y + camera.viewportHeight / 2 - 50);
+
+// Hint button below scores
+        if (hintAvailable) {
+            font.draw(batch, "Press H for Hint", camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 60);
+        } else {
+            font.draw(batch, "Hint available in: " + (int)hintCooldown, camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 60);
         }
-        // Draw the countdown timer if the game mode is TIMER.
+
+// Current hint at top center
+        if (hintVisible && !currentHint.isEmpty()) {
+            float alpha = 1.0f;
+            // Fade calculations...
+            Color prevColor = font.getColor();
+            font.setColor(prevColor.r, prevColor.g, prevColor.b, alpha);
+            // Center the hint text
+            font.draw(batch, currentHint, camera.position.x - 200, camera.position.y + (camera.viewportHeight / 2f) - 20);
+            font.setColor(prevColor);
+        }
+
+
+// Timer at top right (unchanged)
         if (settings.gameMode == GameSettings.GameMode.TIMER) {
             int timeLeft = (int) countdownTimer;
             font.draw(batch, "Time Left: " + timeLeft, camera.position.x + 250, camera.position.y + (camera.viewportHeight / 2f) - 20);
@@ -388,31 +501,64 @@ public class GameScreen implements Screen {
         return "";
     }
 
-
+    // Update the main update method to call the modified updateAI
+// Make sure hint processing passes the landmarks to the AI
     private void update(float delta) {
         // Update game logic, player movement, AI, etc.
         playerStateTime += delta;
         aiStateTime += delta;
 
-        // Handle player input and AI updates...
+        // Handle player input
         handlePlayerInput(delta);
+
+        // REMOVE THIS ENTIRE BLOCK - it's the automatic hint generation
+    /*
+    hintTimer += delta;
+    if (hintTimer >= HINT_INTERVAL) {
+        hintTimer = 0f; // reset timer
+        // Generate a new hint
+        currentHint = generateGlobalHint();
+
+        // If we have a valid hint, start displaying it
+        if (!currentHint.isEmpty()) {
+            hintVisible = true;
+            currentHintDisplayTimer = 0f;
+
+            // Pass the hint to the AI along with landmarks
+            if (ai != null && !currentHint.isEmpty()) {
+                ai.processHint(currentHint, landmarks);
+            }
+        }
+    }
+    */
+
+        // Keep the hint display timing logic
+        if (hintVisible) {
+            currentHintDisplayTimer += delta;
+            if (currentHintDisplayTimer >= hintDisplayDuration) {
+                // Hide the hint after display duration
+                hintVisible = false;
+            }
+        }
+
+        // Keep the hint cooldown logic
+        if (!hintAvailable) {
+            hintCooldown -= delta;
+            if (hintCooldown <= 0) {
+                hintAvailable = true;
+                hintCooldown = 0;
+            }
+        }
+
+        // Update AI after potentially processing the hint
         updateAI(delta);
 
-        // Update treasure states and other game logic.
+        // Update treasure states and other game logic
         for (TreasureChest chest : treasureChests) {
             chest.update(delta);
         }
 
-        // Update your hint timer
-        hintTimer += delta;
-        if (hintTimer >= HINT_INTERVAL) {
-            hintTimer = 0f; // reset timer
-            // Optionally, select a hint from the list of treasures that is closed
-            // or select one based on landmarks.
-            currentHint = generateGlobalHint();
-        }
-
-        // Update the camera and check round conditions.
+        // Update the camera and check round conditions
         updateCamera();
         checkRoundEnd();
     }
@@ -494,56 +640,61 @@ public class GameScreen implements Screen {
                         e.printStackTrace();
                     }
 
-                    // Remove associated landmark hints:
-                    Iterator<Landmark> iter = landmarks.iterator();
-                    while (iter.hasNext()) {
-                        Landmark lm = iter.next();
-                        // Check if the treasure is within the landmark's radius.
-                        if (chest.position.dst(lm.position) < lm.radius) {
-                            System.out.println("Removing landmark hint: " + lm.name + " (treasure collected)");
-                            iter.remove();
-                            // Optionally break if each treasure should only remove one landmark:
-                            break;
-                        }
-                    }
+                    // Notify AI that player collected a treasure - pass true to indicate player collected it
+                    ai.notifyTreasureCollected(chest.position, true);
+
+                    // Rest of the code remains the same...
                 }
+            }
+        }
+        // Add this to your handlePlayerInput method
+        if (Gdx.input.isKeyJustPressed(Input.Keys.H) && hintAvailable) {
+            // Generate and display a hint
+            currentHint = generateGlobalHint();
+
+            if (!currentHint.isEmpty()) {
+                // Reset hint display state
+                hintVisible = true;
+                currentHintDisplayTimer = 0f;
+
+                // Start cooldown
+                hintAvailable = false;
+                hintCooldown = HINT_COOLDOWN_DURATION;
+
+                // Pass the hint to the AI
+                if (ai != null) {
+                    ai.processHint(currentHint, landmarks);
+                }
+            }
+        }
+// In update method, handle cooldown
+        if (!hintAvailable) {
+            hintCooldown -= delta;
+            if (hintCooldown <= 0) {
+                hintAvailable = true;
+                hintCooldown = 0;
             }
         }
     }
 
     // Modify the updateAI method in GameScreen.java
     private void updateAI(float delta) {
-        // Save the old position in case we need to roll back
-        Vector2 oldPosition = new Vector2(ai.position);
-
-        // Update the AI's internal state and movement
-        ai.update(delta, this); // Pass this GameScreen instance to the AI
+        // Update the AI's state and movement
+        // In the GameScreen class update method:
+        ai.update(delta, this);
 
         // Set animation direction based on AI's current direction
         aiDirection = ai.getCurrentDirection();
 
-        // Ensure AI stays within map bounds
-        int mapTileWidth = tiledMap.getProperties().get("width", Integer.class);
-        int mapTileHeight = tiledMap.getProperties().get("height", Integer.class);
-        int tilePixelWidth = tiledMap.getProperties().get("tilewidth", Integer.class);
-        int tilePixelHeight = tiledMap.getProperties().get("tileheight", Integer.class);
-        int mapPixelWidth = mapTileWidth * tilePixelWidth;
-        int mapPixelHeight = mapTileHeight * tilePixelHeight;
-
-        ai.position.x = MathUtils.clamp(ai.position.x, 0, mapPixelWidth - 64);
-        ai.position.y = MathUtils.clamp(ai.position.y, 0, mapPixelHeight - 64);
-
-        // Double-check if the new position is walkable
-        if (!isWalkable(ai.position)) {
-            ai.position.set(oldPosition);
-        }
-
-        // Have the AI collect treasures as it moves over them
+        // Check for treasure collection
         for (TreasureChest chest : treasureChests) {
             if (chest.state == TreasureChest.ChestState.CLOSED &&
                 ai.position.dst(chest.position) < 32) {
                 chest.open();
                 ai.score++;
+
+                // Notify the AI that a treasure was collected by AI - pass false to indicate AI collected it
+                ai.notifyTreasureCollected(chest.position, false);
 
                 // Store the treasure collection data
                 try {
@@ -570,8 +721,9 @@ public class GameScreen implements Screen {
                     }
                 }
             }
-        }
-    }
+        }    }
+
+
     private void checkRoundEnd() {
         boolean allOpen = true;
         for (TreasureChest chest : treasureChests) {
@@ -666,36 +818,54 @@ public class GameScreen implements Screen {
         }
     }
 
+    // Modify the resetRound method to rescan the map when resetting the round
     private void resetRound() {
         player.score = 0;
-        ai.score = 0; // Reset the AI's score here.
+        ai.score = 0;
+        // Reset hint system
+        currentHint = "";
+        hintTimer = 0f;
+        hintVisible = false;
+        currentHintDisplayTimer = 0f;
+        hintAvailable = true;
+        hintCooldown = 0f;
+
         int mapTileWidth = tiledMap.getProperties().get("width", Integer.class);
         int mapTileHeight = tiledMap.getProperties().get("height", Integer.class);
-        int tilePixelWidth = tiledMap.getProperties().get("tilewidth", Integer.class);
-        int tilePixelHeight = tiledMap.getProperties().get("tileheight", Integer.class);
-        int mapPixelWidth = mapTileWidth * tilePixelWidth;
-        int mapPixelHeight = mapTileHeight * tilePixelHeight;
-        do {
-            player.position.set(random.nextInt(mapPixelWidth), random.nextInt(mapPixelHeight));
-        } while (!isWalkable(player.position));
-        // Removed AI repositioning.
-        treasureChests.clear();
-        // Define an edge buffer so that treasures aren't spawned too close to the map boundaries.
-        int treasureEdgeBuffer = 50; // Pixels buffer from the edge.
-        for (int i = 0; i < settings.treasureCount; i++) {
-            Vector2 pos;
-            do {
-                pos = new Vector2(
-                    random.nextInt(mapPixelWidth - 2 * treasureEdgeBuffer) + treasureEdgeBuffer,
-                    random.nextInt(mapPixelHeight - 2 * treasureEdgeBuffer) + treasureEdgeBuffer
-                );
-            } while (!isWalkable(pos) || pos.dst(player.position) < 50);
-            treasureChests.add(new TreasureChest(pos, 8, 0.1f));
-        }
+        int mapPixelWidth = mapTileWidth * tileWidth;
+        int mapPixelHeight = mapTileHeight * tileHeight;
 
+        // Reset player position with validation
+        Vector2 playerSpawnPos = SpawnLocationValidator.findValidSpawnLocation(
+            this, mapPixelWidth, mapPixelHeight, tileWidth, tileHeight, 100);
+        player.position.set(playerSpawnPos);
+
+        // Reset AI position with validation
+        Vector2 aiSpawnPos = SpawnLocationValidator.findValidSpawnLocation(
+            this, mapPixelWidth, mapPixelHeight, tileWidth, tileHeight, 100);
+        // Make sure AI doesn't spawn too close to player
+        while (aiSpawnPos.dst(playerSpawnPos) < 200) {
+            aiSpawnPos = SpawnLocationValidator.findValidSpawnLocation(
+                this, mapPixelWidth, mapPixelHeight, tileWidth, tileHeight, 100);
+        }
+        ai.position.set(aiSpawnPos);
+
+        // Reset hint system
+        currentHint = "";
+        hintTimer = 0f;
+
+        // Reload all landmarks from the map
+        loadAllLandmarksFromObjectGroups();
+
+        // Rescan the map for the AI
+        ai.scanWalkableAreas(this, tiledMap);
+
+        // Place new treasure chests
+        placeTreasuresScattered();
+
+        // Reset round timer
         resetTimer();
     }
-
     boolean isWalkable(Vector2 pos) {
         // --- 1. Check if position is within map bounds ---
         int mapTileWidth = tiledMap.getProperties().get("width", Integer.class);
