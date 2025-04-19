@@ -71,6 +71,8 @@ public class GameScreen implements Screen {
     private Sound collectSound;
     private Music duringGameMusic;
     private Sound hintSound;
+    private final List<Vector2> spawnPoints;
+
 
 
 
@@ -195,14 +197,22 @@ public class GameScreen implements Screen {
         playerWalkRight.setPlayMode(Animation.PlayMode.LOOP);
         playerWalkUp.setPlayMode(Animation.PlayMode.LOOP);
 
-        // --- Initialize Player position in a walkable area ---
-        float playerX = 3 * tileWidth + (tileWidth / 2);
-        float playerY = 14 * tileHeight + (tileHeight / 2);
-        player = new Player(new Vector2(playerX, playerY));
+        // define the five canonical spawn tiles:
+        spawnPoints = new ArrayList<>();
+        initializeSpawnPoints();
 
-        float aiX = 5 * tileWidth + (tileWidth / 2);
-        float aiY = 14 * tileHeight + (tileHeight / 2);
-        ai = new SmartAI(new Vector2(aiX, aiY), currentMapName);
+
+
+        // Now use the spawnPoints when spawning player and AI
+        Vector2 playerSpawn = getRandomSpawnPoint();
+        player = new Player(playerSpawn.cpy());
+
+        // Option A: pick a different random spawn for the AI
+        Vector2 aiSpawn;
+        do {
+            aiSpawn = getRandomSpawnPoint();
+        } while (aiSpawn.epsilonEquals(playerSpawn, 1e-3f));
+        ai = new SmartAI(aiSpawn.cpy(), currentMapName);
 
         ai.scanWalkableAreas(this, tiledMap);
 
@@ -269,6 +279,56 @@ public class GameScreen implements Screen {
     public TiledMap getTiledMap() {
         return tiledMap;
     }
+    private void initializeSpawnPoints() {
+        int mapTileWidth = tiledMap.getProperties().get("width", Integer.class);
+        int mapTileHeight = tiledMap.getProperties().get("height", Integer.class);
+
+        // Clear any existing spawn points
+        spawnPoints.clear();
+
+        // Calculate buffer from edges (25% of the way in from each side)
+        int bufferX = (int)(mapTileWidth * 0.25);
+        int bufferY = (int)(mapTileHeight * 0.25);
+
+        // Add spawn positions with better spacing from edges
+        // bottom-left quadrant
+        spawnPoints.add(new Vector2(
+            bufferX * tileWidth + tileWidth/2,
+            bufferY * tileHeight + tileHeight/2));
+
+        // bottom-right quadrant
+        spawnPoints.add(new Vector2(
+            (mapTileWidth - bufferX) * tileWidth - tileWidth/2,
+            bufferY * tileHeight + tileHeight/2));
+
+        // top-left quadrant
+        spawnPoints.add(new Vector2(
+            bufferX * tileWidth + tileWidth/2,
+            (mapTileHeight - bufferY) * tileHeight - tileHeight/2));
+
+        // top-right quadrant
+        spawnPoints.add(new Vector2(
+            (mapTileWidth - bufferX) * tileWidth - tileWidth/2,
+            (mapTileHeight - bufferY) * tileHeight - tileHeight/2));
+
+        // center
+        spawnPoints.add(new Vector2(
+            (mapTileWidth/2) * tileWidth,
+            (mapTileHeight/2) * tileHeight));
+
+    }
+    /**
+     * Returns a random spawn point from the list
+     * @return A randomly selected spawn point
+     */
+    private Vector2 getRandomSpawnPoint() {
+        if (spawnPoints.isEmpty()) {
+            // Fallback in case spawn points haven't been initialized
+            return new Vector2(100, 100);
+        }
+        return spawnPoints.get(random.nextInt(spawnPoints.size()));
+    }
+
 
     /**
      * Draws the AI's pathfinding visualization (for debugging)
@@ -801,23 +861,27 @@ public class GameScreen implements Screen {
         }
 
         // Handle hint button
+// In handlePlayerInput(), inside your H‐key block:
         if (Gdx.input.isKeyJustPressed(Input.Keys.H) && hintAvailable) {
-            // Generate and display a hint
             currentHint = generateGlobalHint();
-
             if (!currentHint.isEmpty()) {
-                // Reset hint display state
                 hintVisible = true;
                 hintSound.play(0.8f);
                 currentHintDisplayTimer = 0f;
-
-                // Start cooldown
                 hintAvailable = false;
                 hintCooldown = HINT_COOLDOWN_DURATION;
 
-                // Pass the hint to the AI
-                if (ai != null) {
-                    ai.processHint(currentHint, landmarks);
+                // 1) process it for your HistoricalAIData (for later hint‐expansion)
+                ai.processHint(currentHint, landmarks);
+
+                // 2) *right now* pick the landmark and force the AI target:
+                for (Landmark lm : landmarks) {
+                    String pretty = lm.name.replace("_"," ").toLowerCase();
+                    if (currentHint.toLowerCase().contains(pretty)) {
+                        // immediately send the AI straight there
+                        ai.setTarget(lm.position.cpy(), true);
+                        break;
+                    }
                 }
             }
         }
@@ -980,6 +1044,7 @@ public class GameScreen implements Screen {
      * Example of how to modify the resetRound method to work with the new AI
      * Update your resetRound method to include this logic
      */
+// Then update resetRound() to use these spawn points
     private void resetRound() {
         player.score = 0;
         ai.score = 0;
@@ -992,15 +1057,15 @@ public class GameScreen implements Screen {
         hintAvailable = true;
         hintCooldown = 0f;
 
-        // Convert tile coordinates to pixel coordinates
-        float playerX = 3 * tileWidth + (tileWidth / 2);
-        float playerY = 14 * tileHeight + (tileHeight / 2);
-        player.position.set(playerX, playerY);
+        // Use the spawn points list to respawn entities
+        Vector2 newPlayer = getRandomSpawnPoint();
+        player.position.set(newPlayer);
 
-        // Place AI at a different but still valid location
-        float aiX = 5 * tileWidth + (tileWidth / 2);
-        float aiY = 14 * tileHeight + (tileHeight / 2);
-        ai.position.set(aiX, aiY);
+        Vector2 newAI;
+        do {
+            newAI = getRandomSpawnPoint();
+        } while (newAI.epsilonEquals(newPlayer, 1e-3f));
+        ai.position.set(newAI);
 
         // Reload all landmarks from the map
         loadAllLandmarksFromObjectGroups();

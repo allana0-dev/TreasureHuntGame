@@ -93,11 +93,14 @@ public class HistoricalAIData {
 
             // Ensure minimum distance between hotspots
             float minHotspotDistance = LOCATION_HOTSPOT_RADIUS * 1.5f;
-
-            // Select well-distributed hotspots
+            // Primary: well‐distributed one per quadrant
             selectDistributedHotspots(allTreasureLocations, adjustedHotspotLimit, minHotspotDistance);
 
-            // Shuffle the hotspots for less predictable targeting
+            // Fallback: if distribution yielded too few, do a greedy pick
+            if (treasureHotspots.size() < Math.min(3, allTreasureLocations.size())) {
+                selectGreedyHotspots(allTreasureLocations, adjustedHotspotLimit, minHotspotDistance);
+            }
+
             Collections.shuffle(treasureHotspots, random);
 
             System.out.println("Selected " + treasureHotspots.size() +
@@ -273,47 +276,25 @@ public class HistoricalAIData {
      * Updates the AI target based on hints and historical data
      */
     public boolean updateAITarget(float delta, String currentHint, List<Landmark> landmarks) {
-        // Handle hint following if active
+        // 1) If we’re in “hint mode”, *always* keep the hint target alive
         if (isFollowingHint && hintLandmarkPosition != null) {
-            boolean updated = updateHintFollowing(delta);
-            if (updated) {
-                return true;
-            }
+            updateHintFollowing(delta);    // maybe randomize local search once you arrive
+            return true;                   // <— skip ALL fallback logic
         } else {
+            // no hint, clear old hint state
             isFollowingHint = false;
             hintLandmarkPosition = null;
         }
 
-        // Update roaming timer
-        if (isRoaming) {
-            roamingTimer += delta;
-
-            if (roamingTimer < currentRoamingDuration) {
-                return false;
-            }
-
-            isRoaming = false;
-            roamingTimer = 0f;
-            System.out.println("AI roaming period ended, checking for new targets");
+        // force hint every time it changes
+        if (!currentHint.isEmpty() && !hasProcessedHint) {
+            processHint(currentHint, landmarks);
+            hasProcessedHint = true;
+            return true;
         }
 
-        // Process hint with high priority
-        if (!currentHint.isEmpty() && !hasProcessedHint && random.nextFloat() < HINT_PRIORITY) {
-            boolean hintProcessed = processHint(currentHint, landmarks);
 
-            if (hintProcessed) {
-                hasProcessedHint = true;
-                System.out.println("AI following hint: " + currentHint);
-                return true;
-            }
-        }
-
-        // Reset hint processing flag if hint is empty
-        if (currentHint.isEmpty()) {
-            hasProcessedHint = false;
-        }
-
-        // Choose between database location or exploration
+        // 3) ONLY now do your DB or roaming fallback
         if (random.nextFloat() < DATABASE_LOCATION_WEIGHT && !treasureHotspots.isEmpty()) {
             return setDatabaseTarget();
         } else {
