@@ -26,6 +26,7 @@ import com.badlogic.gdx.maps.tiled.TmxMapLoader;
 import com.badlogic.gdx.maps.tiled.TiledMap;
 import com.badlogic.gdx.maps.tiled.renderers.OrthogonalTiledMapRenderer;
 import com.badlogic.gdx.math.MathUtils;
+import com.badlogic.gdx.utils.Array;
 import org.encog.ml.data.basic.BasicMLDataSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -265,6 +266,47 @@ public class GameScreen implements Screen {
         // Removed AI initialization.
     }
 
+    public TiledMap getTiledMap() {
+        return tiledMap;
+    }
+
+    /**
+     * Draws the AI's pathfinding visualization (for debugging)
+     * Call this from render() after drawing everything else
+     */
+    private void drawPathVisualization() {
+        if (ai == null) return;
+
+        // Cast to our SmartAI implementation to access the path visualizer
+        Array<Vector2> pathPoints = ((SmartAI)ai).getPathVisualizer();
+
+        if (pathPoints != null && pathPoints.size >= 2) {
+            // Set up shape renderer
+            shapeRenderer.setProjectionMatrix(camera.combined);
+            shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+            shapeRenderer.setColor(1, 0, 0, 0.5f); // Red line with transparency
+
+            // Draw path segments
+            for (int i = 0; i < pathPoints.size - 1; i++) {
+                Vector2 current = pathPoints.get(i);
+                Vector2 next = pathPoints.get(i + 1);
+                shapeRenderer.line(current, next);
+            }
+
+            shapeRenderer.end();
+
+            // Draw points
+            shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+            shapeRenderer.setColor(0, 1, 0, 0.5f); // Green points with transparency
+
+            for (Vector2 point : pathPoints) {
+                shapeRenderer.circle(point.x, point.y, 5);
+            }
+
+            shapeRenderer.end();
+        }
+    }
+
     private void placeTreasuresScattered() {
         treasureChests.clear();
 
@@ -288,7 +330,7 @@ public class GameScreen implements Screen {
         // First try to place one treasure per grid cell
         List<Integer> cellIndices = new ArrayList<>();
         for (int i = 0; i < gridSize * gridSize; i++) {
-            cellIndices.add(i);
+            cellIndices.add(Integer.valueOf(i));
         }
         java.util.Collections.shuffle(cellIndices, random);
 
@@ -589,9 +631,12 @@ public class GameScreen implements Screen {
         return "";
     }
 
-// Make sure hint processing passes the landmarks to the AI
+    /**
+     * Updated update method to integrate with new AI logic
+     * Replace your existing update method with this one
+     */
     private void update(float delta) {
-        // Update game logic, player movement, AI, etc.
+        // Update animation times
         playerStateTime += delta;
         aiStateTime += delta;
 
@@ -616,10 +661,10 @@ public class GameScreen implements Screen {
             }
         }
 
-        // Update AI after potentially processing the hint
+        // Update AI
         updateAI(delta);
 
-        // Update treasure states and other game logic
+        // Update treasure states
         for (TreasureChest chest : treasureChests) {
             chest.update(delta);
         }
@@ -628,6 +673,33 @@ public class GameScreen implements Screen {
         updateCamera();
         checkRoundEnd();
     }
+    /**
+     * Add a method to the render method to enable path visualization (for debugging)
+     * Call this at the end of your render method if you want to see the AI's path
+     */
+    private void renderDebugInfo() {
+        // Only enable this during development/debugging
+        boolean debugMode = false;
+
+        if (debugMode) {
+            // Draw the AI's path
+            drawPathVisualization();
+
+            // Draw AI target if it has one
+            if (ai instanceof SmartAI) {
+                SmartAI smartAI = (SmartAI) ai;
+                Vector2 target = smartAI.getTargetPosition();
+
+                if (target != null) {
+                    shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+                    shapeRenderer.setColor(1, 0, 1, 0.7f); // Purple for target
+                    shapeRenderer.circle(target.x, target.y, 10);
+                    shapeRenderer.end();
+                }
+            }
+        }
+    }
+
     private String generateGlobalHint() {
         // Loop over closed treasures and generate a hint if one is near a landmark.
         for (TreasureChest chest : treasureChests) {
@@ -660,6 +732,10 @@ public class GameScreen implements Screen {
 
 
     // Handle player input
+    /**
+     * Modification to handlePlayerInput to properly notify the AI when player collects a treasure
+     * Update your existing handlePlayerInput method to include this logic
+     */
     private void handlePlayerInput(float delta) {
         Vector2 oldPosition = new Vector2(player.position);
         if (Gdx.input.isKeyPressed(Input.Keys.LEFT)) {
@@ -707,14 +783,24 @@ public class GameScreen implements Screen {
                         e.printStackTrace();
                     }
 
-                    // Notify AI that player collected a treasure - pass true to indicate player collected it
+                    // Notify AI that player collected a treasure
                     ai.notifyTreasureCollected(chest.position, true);
 
-                    // Rest of the code remains the same...
+                    // Remove associated landmark hints
+                    Iterator<Landmark> iter = landmarks.iterator();
+                    while (iter.hasNext()) {
+                        Landmark lm = iter.next();
+                        if (chest.position.dst(lm.position) < lm.radius) {
+                            System.out.println("Removing landmark hint: " + lm.name + " (collected by player)");
+                            iter.remove();
+                            break;
+                        }
+                    }
                 }
             }
         }
-        // Add this to your handlePlayerInput method
+
+        // Handle hint button
         if (Gdx.input.isKeyJustPressed(Input.Keys.H) && hintAvailable) {
             // Generate and display a hint
             currentHint = generateGlobalHint();
@@ -735,20 +821,18 @@ public class GameScreen implements Screen {
                 }
             }
         }
-// In update method, handle cooldown
-        if (!hintAvailable) {
-            hintCooldown -= delta;
-            if (hintCooldown <= 0) {
-                hintAvailable = true;
-                hintCooldown = 0;
-            }
-        }
     }
-
     // Modify the updateAI method in GameScreen.java
+
+    /**
+     * Example of how to update the updateAI method in GameScreen to work with the new AI
+     * Replace your existing updateAI method with this one
+     */
     private void updateAI(float delta) {
         // Update the AI's state and movement
         // In the GameScreen class update method:
+        System.out.println("AI position: " + ai.position + ", hasTarget: " + ((SmartAI)ai).getTargetPosition());
+
         ai.update(delta, this);
 
         // Set animation direction based on AI's current direction
@@ -762,7 +846,7 @@ public class GameScreen implements Screen {
                 chest.open();
                 ai.score++;
 
-                // Notify the AI that a treasure was collected by AI - pass false to indicate AI collected it
+                // Notify the AI that a treasure was collected by AI
                 ai.notifyTreasureCollected(chest.position, false);
 
                 // Store the treasure collection data
@@ -790,7 +874,8 @@ public class GameScreen implements Screen {
                     }
                 }
             }
-        }    }
+        }
+    }
 
 
     private void checkRoundEnd() {
@@ -811,8 +896,8 @@ public class GameScreen implements Screen {
 
     private void endRound() {
         // Determine round winner.
-        settings.playerRoundScores.add(player.score);
-        settings.aiRoundScores.add(ai.score);
+        settings.playerRoundScores.add(Integer.valueOf(player.score));
+        settings.aiRoundScores.add(Integer.valueOf(ai.score));
         if (ai.score > player.score) {
             settings.aiRoundsWon++;
             System.out.println("Round " + currentRound + " ended. AI wins! AI Score: " + ai.score + ", Player Score: " + player.score);
@@ -891,6 +976,10 @@ public class GameScreen implements Screen {
 // In the GameScreen class, modify the resetRound method like this:
 // In GameScreen.java, modify the resetRound() method:
 
+    /**
+     * Example of how to modify the resetRound method to work with the new AI
+     * Update your resetRound method to include this logic
+     */
     private void resetRound() {
         player.score = 0;
         ai.score = 0;
@@ -904,18 +993,14 @@ public class GameScreen implements Screen {
         hintCooldown = 0f;
 
         // Convert tile coordinates to pixel coordinates
-        float playerX = 3 * tileWidth + (tileWidth / 2); // Center of tile 3
-        float playerY = 14 * tileHeight + (tileHeight / 2); // Center of tile 14
+        float playerX = 3 * tileWidth + (tileWidth / 2);
+        float playerY = 14 * tileHeight + (tileHeight / 2);
         player.position.set(playerX, playerY);
 
-        // Place AI at a different but still valid location (e.g., 5, 14)
+        // Place AI at a different but still valid location
         float aiX = 5 * tileWidth + (tileWidth / 2);
         float aiY = 14 * tileHeight + (tileHeight / 2);
         ai.position.set(aiX, aiY);
-
-        // Reset hint system
-        currentHint = "";
-        hintTimer = 0f;
 
         // Reload all landmarks from the map
         loadAllLandmarksFromObjectGroups();
@@ -1005,6 +1090,7 @@ public class GameScreen implements Screen {
                 }
             }
         }
+
 
         // All checks passed
         return true;
