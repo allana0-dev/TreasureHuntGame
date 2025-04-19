@@ -11,7 +11,7 @@ import java.util.*;
  */
 public class HistoricalAIData {
     // Behavior constants
-    private static final float DATABASE_LOCATION_WEIGHT = 0.9f;
+    private static final float DATABASE_LOCATION_WEIGHT = 1.0f;
     private static final float HINT_PRIORITY = 0.9f;
     private static final float MIN_ROAMING_DURATION = 5f;
     private static final float MAX_ROAMING_DURATION = 15f;
@@ -439,6 +439,9 @@ public class HistoricalAIData {
         if (bestTarget != null) {
             // Target this hotspot
             smartAI.setTarget(new Vector2(bestTarget), true);
+            System.out.println("  → DB forced target at: " + bestTarget +
+                " | hasTarget=" + smartAI.hasTarget);
+
             lastDatabaseTarget = new Vector2(bestTarget);
             visitedHotspots.add(new Vector2(bestTarget));
             System.out.println("AI targeting database hotspot at: " + bestTarget.x + ", " + bestTarget.y);

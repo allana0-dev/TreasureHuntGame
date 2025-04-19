@@ -162,10 +162,22 @@ public class TiledMapGraph implements IndexedGraph<TiledNode> {
      * Gets a random walkable node from the graph
      */
     public TiledNode getRandomWalkableNode() {
-        if (walkableNodes.size == 0) return null;
-
-        return walkableNodes.get(random.nextInt(walkableNodes.size));
+        // Build a list of “safe” nodes, excluding the outermost tiles
+        Array<TiledNode> safeNodes = new Array<>();
+        for (TiledNode node : walkableNodes) {
+            if (node.gridX > 0 && node.gridX < mapWidth - 1
+                && node.gridY > 0 && node.gridY < mapHeight - 1) {
+                safeNodes.add(node);
+            }
+        }
+        // If for some reason we filtered everything out, fall back to any node
+        if (safeNodes.size > 0) {
+            return safeNodes.get(random.nextInt(safeNodes.size));
+        } else {
+            return walkableNodes.get(random.nextInt(walkableNodes.size));
+        }
     }
+
 
     /**
      * Marks a node as having been visited
@@ -175,6 +187,28 @@ public class TiledMapGraph implements IndexedGraph<TiledNode> {
             visitedTiles[node.gridX][node.gridY] = true;
         }
     }
+    // Inside TiledMapGraph.java
+
+    /** Number of tiles horizontally in the map. */
+    public int getWidth() {
+        return mapWidth;
+    }
+
+    /** Number of tiles vertically in the map. */
+    public int getHeight() {
+        return mapHeight;
+    }
+
+    /** Width of one tile in pixels. */
+    public int getTileWidth() {
+        return tileWidth;
+    }
+
+    /** Height of one tile in pixels. */
+    public int getTileHeight() {
+        return tileHeight;
+    }
+
 
     /**
      * Finds a node in an unexplored area of the map
@@ -189,7 +223,9 @@ public class TiledMapGraph implements IndexedGraph<TiledNode> {
         // Get all unexplored walkable nodes
         Array<TiledNode> unexploredNodes = new Array<>();
         for (TiledNode node : walkableNodes) {
-            if (!visitedTiles[node.gridX][node.gridY]) {
+            if (!visitedTiles[node.gridX][node.gridY]
+                && node.gridX > 0 && node.gridX < mapWidth - 1
+                && node.gridY > 0 && node.gridY < mapHeight - 1) {
                 unexploredNodes.add(node);
             }
         }

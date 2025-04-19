@@ -25,6 +25,15 @@ public class SmartAI implements Steerable<Vector2> {
     public int score = 0;
     private String currentMapName;
     private Direction currentDirection = Direction.DOWN;
+    private Direction desiredDirection = currentDirection;
+    private float directionTimer = 0f;
+    private static final float DIRECTION_CONFIRM_TIME = 0.1f;
+    private final Vector2 previousPosition = new Vector2();
+    private final Vector2 linearVelocity = new Vector2();
+    private boolean movedThisFrame = false;
+
+
+
     private Random random = new Random();
 
     // Movement and pathfinding
@@ -39,9 +48,10 @@ public class SmartAI implements Steerable<Vector2> {
     private TiledMapGraph mapGraph;
     private IndexedAStarPathFinder<TiledNode> pathFinder;
     private GraphPath<TiledNode> currentPath;
+    private static final float DIRECTION_SWITCH_THRESHOLD = 5f;
     private int currentPathIndex;
     private Vector2 targetPosition = new Vector2();
-    private boolean hasTarget = false;
+    boolean hasTarget = false;
     private boolean pathNeedsRefresh = false;
     private float pathRefreshTimer = 0f;
     private final float PATH_REFRESH_INTERVAL = 1.5f;
@@ -49,7 +59,6 @@ public class SmartAI implements Steerable<Vector2> {
     // Steering behavior
     private SteeringBehavior<Vector2> steeringBehavior;
     private SteeringAcceleration<Vector2> steeringOutput = new SteeringAcceleration<>(new Vector2());
-    private Vector2 linearVelocity = new Vector2();
     private float maxLinearSpeed = 100f;
     private float maxLinearAcceleration = 200f;
     private float maxAngularSpeed = 0f;
@@ -57,6 +66,12 @@ public class SmartAI implements Steerable<Vector2> {
     private float zeroLinearSpeedThreshold = 0.1f;
     private boolean tagged = false;
     private float lastDistanceToTarget = Float.MAX_VALUE;
+    private float stuckTimer = 0f;
+    private static final float STUCK_THRESHOLD = 1.0f;
+    private int repathAttempts = 0;
+    private static final int MAX_REPATH_ATTEMPTS = 3;
+
+
 
     // AI State
     private enum AIState {
@@ -102,8 +117,12 @@ public class SmartAI implements Steerable<Vector2> {
     /**
      * Sets a new target position for the AI to move towards
      */
+
     public void setTarget(Vector2 targetPos, boolean seekMode) {
-        this.targetPosition.set(targetPos);
+        // clamp the incoming position to one‐tile margin
+        Vector2 safePos = clampInside(targetPos.cpy());
+
+        this.targetPosition.set(safePos);
         this.hasTarget = true;
         this.pathNeedsRefresh = true;
 
@@ -120,12 +139,56 @@ public class SmartAI implements Steerable<Vector2> {
             this.currentState = AIState.EXPLORING;
         }
     }
+    private void nudgePositionOffNode() {
+        // Only nudge along one axis: pick X or Y at random
+        boolean nudgeX = random.nextBoolean();
+        float offset = (random.nextBoolean() ? 1 : -1) * 2f; // 2px in either direction
+
+        if (nudgeX) {
+            position.x += offset;
+        } else {
+            position.y += offset;
+        }
+
+        // Reset velocity so we don't treat this as diagonal movement
+        linearVelocity.setZero();
+        // Also reset previousPosition so stuck detection doesn't immediately retrigger
+        previousPosition.set(position);
+    }
 
     /**
      * Updates the AI's position and behavior
      */
     public void update(float delta, GameScreen gameScreen) {
-        // Update speed boost if active
+        // --- 1) STUCK DETECTION ---
+        // --- 8) STUCK DETECTION (after movement) ---
+        // --- 4) DATABASE / HINT‑BASED TARGET UPDATES ---
+        boolean targetUpdated = databaseManager.updateAITarget(
+            delta,
+            gameScreen.getCurrentHint(),
+            gameScreen.getLandmarks()
+        );
+        if (hasTarget) {
+            if (!movedThisFrame) {
+                stuckTimer += delta;
+            } else {
+                stuckTimer = 0f;
+            }
+
+            if (stuckTimer > STUCK_THRESHOLD) {
+                onStuck(gameScreen);
+                stuckTimer = 0f;
+            }
+        }
+
+        previousPosition.set(position);
+
+        if (stuckTimer > STUCK_THRESHOLD) {
+            onStuck(gameScreen);
+            stuckTimer = 0f;
+        }
+
+        // --- 2) SPEED BOOST UPDATE ---
         if (isSpeedBoostActive) {
             speedBoostTimer += delta;
             if (speedBoostTimer >= speedBoostDuration) {
@@ -136,23 +199,16 @@ public class SmartAI implements Steerable<Vector2> {
             }
         }
 
-        // Refresh path if needed
+        // --- 3) PATH REFRESH LOGIC ---
         pathRefreshTimer += delta;
         if ((pathNeedsRefresh || pathRefreshTimer > PATH_REFRESH_INTERVAL) && hasTarget) {
-            snapToValidNode(); // Add this line
+            snapToValidNode();
             findPathToTarget(gameScreen);
-            pathRefreshTimer = 0;
+            pathRefreshTimer = 0f;
             pathNeedsRefresh = false;
         }
 
-        // Consult database manager for target updates
-        boolean targetUpdated = databaseManager.updateAITarget(
-            delta,
-            gameScreen.getCurrentHint(),
-            gameScreen.getLandmarks()
-        );
-
-        // If no active target, find one based on current state
+        // --- 5) FALLBACK TARGET SELECTION ---
         if (!hasTarget && !targetUpdated) {
             switch (currentState) {
                 case ROAMING:
@@ -162,7 +218,7 @@ public class SmartAI implements Steerable<Vector2> {
                     findExplorationTarget(gameScreen);
                     break;
                 case SEEKING:
-                    // If seeking with no target, fall back to exploring
+                    // If seeking but no target, revert to exploring
                     if (!hasTarget) {
                         currentState = AIState.EXPLORING;
                         findExplorationTarget(gameScreen);
@@ -171,12 +227,58 @@ public class SmartAI implements Steerable<Vector2> {
             }
         }
 
-        // Move along the current path
+        // --- 6) MOVE ALONG CURRENT PATH ---
         moveAlongPath(delta, gameScreen);
 
-        // Update animation direction based on movement
-        updateDirection();
+        // --- 7) UPDATE VISUAL FACING DIRECTION ---
+        updateDirection(delta);
     }
+    private Vector2 clampInside(Vector2 pos) {
+        // Grab map and tile dims from your graph
+        int mapW = mapGraph.getWidth();   // you may need to add getters in TiledMapGraph
+        int mapH = mapGraph.getHeight();
+        int tW   = mapGraph.getTileWidth();
+        int tH   = mapGraph.getTileHeight();
+
+        float minX = tW;
+        float maxX = mapW * tW - tW;
+        float minY = tH;
+        float maxY = mapH * tH - tH;
+
+        pos.x = MathUtils.clamp(pos.x, minX, maxX);
+        pos.y = MathUtils.clamp(pos.y, minY, maxY);
+        return pos;
+    }
+
+    private void onStuck(GameScreen gameScreen) {
+        System.out.println("AI detected as stuck—resetting path/target");
+        repathAttempts++;
+
+        // 1) Snap or nudge off the exact same spot
+        //    Option A: just snap to nearest valid node:
+        snapToValidNode();
+        //    Option B: nudgePositionOffNode();
+        // nudgePositionOffNode();
+
+        // 2) Clear the old path and target
+        currentPath.clear();
+        pathNeedsRefresh = false;
+        hasTarget = false;
+
+        // 3) Pick a fresh goal
+        if (repathAttempts >= MAX_REPATH_ATTEMPTS) {
+            repathAttempts = 0;
+            findRandomTarget(gameScreen);
+        } else {
+            findExplorationTarget(gameScreen);
+        }
+
+        // 4) Reset velocity again just in case
+        linearVelocity.setZero();
+        previousPosition.set(position);
+    }
+
+
 
     /**
      * Finds a path to the current target
@@ -234,84 +336,108 @@ public class SmartAI implements Steerable<Vector2> {
      * Moves the AI along the current path
      */
     private void moveAlongPath(float delta, GameScreen gameScreen) {
+        movedThisFrame = false;
         if (currentPath.getCount() == 0) return;
         if (currentPathIndex >= currentPath.getCount()) {
             if (position.dst(targetPosition) < 32f) hasTarget = false;
             return;
         }
 
-        // 1) Compute direction
+        // 1) Figure out which cardinal direction we _should_ be heading
         TiledNode nextNode = currentPath.get(currentPathIndex);
         Vector2 nextPos = new Vector2(nextNode.x, nextNode.y);
         float dx = nextPos.x - position.x;
         float dy = nextPos.y - position.y;
-        Vector2 direction = new Vector2();
+
+        Direction desiredMove;
         if (Math.abs(dx) > Math.abs(dy)) {
-            direction.set(Math.signum(dx), 0);
+            desiredMove = (dx > 0) ? Direction.RIGHT : Direction.LEFT;
         } else {
-            direction.set(0, Math.signum(dy));
+            desiredMove = (dy > 0) ? Direction.UP : Direction.DOWN;
         }
 
-        // 2) Build linearVelocity and proposedPos
-        linearVelocity.set(direction).scl(moveSpeed);
-        Vector2 oldPos = new Vector2(position);
-        Vector2 proposedPos = oldPos.cpy()
-            .add(linearVelocity.x * delta, linearVelocity.y * delta);
+        // 2) If we're not yet facing that way, just turn—no movement this frame
+        if (currentDirection != desiredMove) {
+            currentDirection = desiredMove;
+            linearVelocity.setZero();
+            return;
+        }
 
-        // 3) Walkability + fallback
-        if (gameScreen.isWalkable(proposedPos)) {
-            position.set(proposedPos);
+        // 3) Now that we're facing correctly, compute our velocity vector
+        Vector2 moveVec = new Vector2(
+            (currentDirection == Direction.RIGHT ? 1 : (currentDirection == Direction.LEFT ? -1 : 0)),
+            (currentDirection == Direction.UP    ? 1 : (currentDirection == Direction.DOWN  ? -1 : 0))
+        );
+        linearVelocity.set(moveVec).scl(moveSpeed);
+
+        // 4) Attempt to move (with your walkability checks)
+        Vector2 oldPos     = new Vector2(position);
+        Vector2 proposed   = oldPos.cpy().add(linearVelocity.x * delta, linearVelocity.y * delta);
+        if (gameScreen.isWalkable(proposed)) {
+            position.set(proposed);
+            movedThisFrame = true;
+
         } else {
+            // fallback sliding
             for (float scale = 0.9f; scale >= 0.1f; scale -= 0.1f) {
                 Vector2 tryPos = oldPos.cpy()
                     .add(linearVelocity.x * delta * scale,
                         linearVelocity.y * delta * scale);
                 if (gameScreen.isWalkable(tryPos)) {
-                    position.set(tryPos);
+                    position.set(proposed);
+                    movedThisFrame = true;
+
                     break;
                 }
             }
         }
 
-        // 4) Clamp to map bounds
-        int mapW = gameScreen.getTiledMap().getProperties().get("width", Integer.class)
-            * gameScreen.getTiledMap().getProperties().get("tilewidth", Integer.class);
-        int mapH = gameScreen.getTiledMap().getProperties().get("height", Integer.class)
-            * gameScreen.getTiledMap().getProperties().get("tileheight", Integer.class);
-        position.x = MathUtils.clamp(position.x, 0, mapW - 64);
-        position.y = MathUtils.clamp(position.y, 0, mapH - 64);
+        // 5) Clamp inside map bounds
+        position.set(clampInside(position.cpy()));
 
-        // 5) Advance node if “close enough”
+
+        // 6) If we got close enough, advance to the next node
         if (position.dst(nextPos) < 5f) {
             currentPathIndex++;
             linearVelocity.setZero();
-            // optional: pathNeedsRefresh = true;
-        }
-
-        // 6) Update facing
-        updateDirection();
-
-        // ───────────────────────────────────────────────────────────
-        // 7) NEW — if we never moved, force a re‐path immediately:
-        if (position.epsilonEquals(oldPos, 0.01f)) {
-            System.out.println("Stuck at " + oldPos + " — recalculating path");
-            snapToValidNode();
-            findPathToTarget(gameScreen);
+            repathAttempts = 0;  // made progress
         }
     }
     /**
-     * Updates the AI's movement direction based on velocity
+     * Call each frame (pass in delta), to debounce flickery direction changes
      */
-    private void updateDirection() {
-        if (linearVelocity.len2() > 0.01f) {
-            // Determine primary cardinal direction based on velocity
-            if (Math.abs(linearVelocity.x) > Math.abs(linearVelocity.y)) {
-                currentDirection = linearVelocity.x > 0 ? Direction.RIGHT : Direction.LEFT;
-            } else {
-                currentDirection = linearVelocity.y > 0 ? Direction.UP : Direction.DOWN;
-            }
+    private void updateDirection(float delta) {
+        float vx = linearVelocity.x;
+        float vy = linearVelocity.y;
+
+        // If almost stationary, do nothing
+        if (Math.abs(vx) < zeroLinearSpeedThreshold && Math.abs(vy) < zeroLinearSpeedThreshold) {
+            return;
+        }
+
+        // Compute the “raw” new direction based on which axis dominates
+        Direction raw;
+        if (Math.abs(vx) > Math.abs(vy)) {
+            raw = vx > 0 ? Direction.RIGHT : Direction.LEFT;
+        } else {
+            raw = vy > 0 ? Direction.UP : Direction.DOWN;
+        }
+
+        // If it’s the same as our last raw read, accumulate time
+        if (raw == desiredDirection) {
+            directionTimer += delta;
+        } else {
+            // New candidate direction — reset timer
+            desiredDirection = raw;
+            directionTimer = 0f;
+        }
+
+        // Only commit to the new direction once we’ve been in it long enough
+        if (desiredDirection != currentDirection && directionTimer >= DIRECTION_CONFIRM_TIME) {
+            currentDirection = desiredDirection;
         }
     }
+
 
     /**
      * Finds a random target on the map
@@ -319,13 +445,12 @@ public class SmartAI implements Steerable<Vector2> {
     private void findRandomTarget(GameScreen gameScreen) {
         if (mapGraph == null) return;
 
-        // Get a random walkable node
-        TiledNode randomNode = mapGraph.getRandomWalkableNode();
-        if (randomNode != null) {
-            targetPosition.set(randomNode.x, randomNode.y);
-            hasTarget = true;
-            pathNeedsRefresh = true;
-            System.out.println("AI choosing random target at: " + targetPosition.x + ", " + targetPosition.y);
+        TiledNode node = mapGraph.getRandomWalkableNode();
+        if (node != null) {
+            // centralizes clamping + flag‐setting
+            setTarget(new Vector2(node.x, node.y), false);
+            System.out.println("AI choosing random target at: "
+                + targetPosition.x + ", " + targetPosition.y);
         }
     }
 
@@ -335,15 +460,12 @@ public class SmartAI implements Steerable<Vector2> {
     private void findExplorationTarget(GameScreen gameScreen) {
         if (mapGraph == null) return;
 
-        // Get a node from an unexplored area
-        TiledNode explorationNode = mapGraph.getUnexploredNode(position);
-        if (explorationNode != null) {
-            targetPosition.set(explorationNode.x, explorationNode.y);
-            hasTarget = true;
-            pathNeedsRefresh = true;
-            System.out.println("AI exploring new area at: " + targetPosition.x + ", " + targetPosition.y);
+        TiledNode node = mapGraph.getUnexploredNode(position);
+        if (node != null) {
+            setTarget(new Vector2(node.x, node.y), false);
+            System.out.println("AI exploring new area at: "
+                + targetPosition.x + ", " + targetPosition.y);
         } else {
-            // Fall back to random target if no unexplored areas
             findRandomTarget(gameScreen);
         }
     }
