@@ -10,9 +10,10 @@ dependencies {
   api "com.badlogicgames.gdx:gdx-bullet:$gdxVersion"
   api "com.badlogicgames.gdx:gdx-freetype:$gdxVersion"
   api "com.badlogicgames.gdx:gdx:$gdxVersion"
-
+  implementation "com.badlogicgames.gdx:gdx-ai:1.8.2"
   implementation "org.encog:encog-core:3.4"
   implementation "org.xerial:sqlite-jdbc:3.41.2.1"
+
 
 
   // Optional UI components

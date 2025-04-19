@@ -1,274 +1,680 @@
 package com.th.game;
 
+import com.badlogic.gdx.ai.pfa.DefaultGraphPath;
+import com.badlogic.gdx.ai.pfa.GraphPath;
+import com.badlogic.gdx.ai.pfa.indexed.IndexedAStarPathFinder;
+import com.badlogic.gdx.ai.pfa.indexed.IndexedGraph;
+import com.badlogic.gdx.ai.steer.Steerable;
+import com.badlogic.gdx.ai.steer.SteeringAcceleration;
+import com.badlogic.gdx.ai.steer.SteeringBehavior;
+import com.badlogic.gdx.ai.utils.Location;
+import com.badlogic.gdx.maps.tiled.TiledMap;
+import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector2;
-import java.sql.SQLException;
-import java.util.*;
-import java.util.function.Function;
+import com.badlogic.gdx.utils.Array;
 
-public class SmartAI extends AIPlayer {
-    private List<Vector2> treasureHotspots;
-    private float baseSpeed;
-    Vector2 currentTarget;
-    private int updatesSinceHotspot = 0;              // Counts updates without using a hotspot.
-    private final int forceHotspotInterval = 3;         // Force hotspot every 3 target updates.
-    float targetUpdateTimer = 0;
-    float targetUpdateInterval = 3.0f; // Change target every 3 seconds
-    private Random random;
-    private int currentRegion = 0; // Current region being explored
+import java.util.List;
+import java.util.Random;
+
+/**
+ * A smarter AI implementation using LibGDX's built-in AI and pathfinding capabilities.
+ */
+public class SmartAI implements Steerable<Vector2> {
+    // AI position and properties
+    public Vector2 position;
+    public int score = 0;
+    private String currentMapName;
     private Direction currentDirection = Direction.DOWN;
-    private int mapWidth, mapHeight;
-    private Vector2[][] regionTargets; // Pre-calculated targets for each region
-    private boolean hasVisitedTreasureLocation = false;
-    private Function<Vector2, Boolean> isWalkableFunction;
-    private Direction lastDirection = null;
-    private int directionChangeCounter = 0;
-    private static final int MIN_STEPS_BEFORE_REVERSAL = 15;
+    private Direction desiredDirection = currentDirection;
+    private float directionTimer = 0f;
+    private static final float DIRECTION_CONFIRM_TIME = 0.1f;
+    private final Vector2 previousPosition = new Vector2();
+    private final Vector2 linearVelocity = new Vector2();
+    private boolean movedThisFrame = false;
 
-    public SmartAI(Vector2 position, String mapName) {
-        super(position);
-        this.baseSpeed = this.speed;  // Store the initial speed (e.g. 150)
-        treasureHotspots = new ArrayList<>();
-        random = new Random();
 
-        // Load treasure hotspots from the database
-        loadTreasureHotspots(mapName);
+
+    private Random random = new Random();
+
+    // Movement and pathfinding
+    private float moveSpeed = 100f;
+    private float normalMoveSpeed = 100f;
+    private float fastMoveSpeed = 200f;
+    private boolean isSpeedBoostActive = false;
+    private float speedBoostTimer = 0f;
+    private float speedBoostDuration = 15f;
+
+    // Path finding
+    private TiledMapGraph mapGraph;
+    private IndexedAStarPathFinder<TiledNode> pathFinder;
+    private GraphPath<TiledNode> currentPath;
+    private static final float DIRECTION_SWITCH_THRESHOLD = 5f;
+    private int currentPathIndex;
+    private Vector2 targetPosition = new Vector2();
+    boolean hasTarget = false;
+    private boolean pathNeedsRefresh = false;
+    private float pathRefreshTimer = 0f;
+    private final float PATH_REFRESH_INTERVAL = 1.5f;
+
+    // Steering behavior
+    private SteeringBehavior<Vector2> steeringBehavior;
+    private SteeringAcceleration<Vector2> steeringOutput = new SteeringAcceleration<>(new Vector2());
+    private float maxLinearSpeed = 100f;
+    private float maxLinearAcceleration = 200f;
+    private float maxAngularSpeed = 0f;
+    private float maxAngularAcceleration = 0f;
+    private float zeroLinearSpeedThreshold = 0.1f;
+    private boolean tagged = false;
+    private float lastDistanceToTarget = Float.MAX_VALUE;
+    private float stuckTimer = 0f;
+    private static final float STUCK_THRESHOLD = 1.0f;
+    private int repathAttempts = 0;
+    private static final int MAX_REPATH_ATTEMPTS = 3;
+
+
+
+    // AI State
+    private enum AIState {
+        ROAMING,       // Random wandering behavior
+        EXPLORING,     // Systematically exploring the map
+        SEEKING        // Moving toward a target (landmark or treasure)
     }
 
-    // Set the walkable function reference
-    public void setWalkableFunction(Function<Vector2, Boolean> isWalkable) {
-        this.isWalkableFunction = isWalkable;
+    private AIState currentState = AIState.EXPLORING;
+    private HistoricalAIData databaseManager;
+
+    // Path visualization (for debugging)
+    private Array<Vector2> pathVisualizer = new Array<>();
+
+    /**
+     * Creates a new AI with advanced pathfinding capabilities
+     *
+     * @param position Initial position
+     * @param currentMapName Map identifier for database lookups
+     */
+    public SmartAI(Vector2 position, String currentMapName) {
+        this.position = position;
+        this.currentMapName = currentMapName;
+        this.databaseManager = new HistoricalAIData(this, currentMapName);
+        this.currentPath = new DefaultGraphPath<>();
     }
 
-    private void loadTreasureHotspots(String mapName) {
-        try {
-            List<TreasureCollectionData> collections = TrainingDataDAO.getCollectionDataByMap(mapName);
+    /**
+     * Scans the walkable areas of the map and initializes the pathfinding graph
+     */
+    public void scanWalkableAreas(GameScreen gameScreen, TiledMap tiledMap) {
+        // Create the map graph for pathfinding
+        mapGraph = new TiledMapGraph(gameScreen, tiledMap);
+        mapGraph.buildGraph();
 
-            if (collections.size() >= 3) {
-                for (TreasureCollectionData data : collections) {
-                    treasureHotspots.add(data.getTreasurePosition());
-                }
-                hasVisitedTreasureLocation = true;
-                System.out.println("Loaded " + treasureHotspots.size() + " treasure hotspots for AI");
-            } else {
-                System.out.println("Not enough collection data for map: " + mapName);
-                hasVisitedTreasureLocation = false;
-            }
-        } catch (SQLException e) {
-            System.err.println("Error loading treasure hotspots: " + e.getMessage());
-            e.printStackTrace();
+        // Create the pathfinder
+        pathFinder = new IndexedAStarPathFinder<>(mapGraph, true);
+    }
+
+    /**
+     * Sets a new target position for the AI to move towards
+     */
+
+    public void setTarget(Vector2 targetPos, boolean seekMode) {
+        // clamp the incoming position to one‐tile margin
+        Vector2 safePos = clampInside(targetPos.cpy());
+
+        this.targetPosition.set(safePos);
+        this.hasTarget = true;
+        this.pathNeedsRefresh = true;
+
+        if (seekMode) {
+            this.currentState = AIState.SEEKING;
         }
     }
 
-    // Should be called once to set up the map dimensions
-    public void setMapDimensions(int width, int height) {
-        this.mapWidth = width;
-        this.mapHeight = height;
-
-        // Create region targets - dividing map into 9 regions (3x3 grid)
-        regionTargets = new Vector2[9][3]; // 9 regions, 3 targets per region
-
-        int regionWidth = mapWidth / 3;
-        int regionHeight = mapHeight / 3;
-
-        // For each region
-        for (int region = 0; region < 9; region++) {
-            int regionX = (region % 3) * regionWidth;
-            int regionY = (region / 3) * regionHeight;
-
-            // Create 3 random targets within this region
-            for (int i = 0; i < 3; i++) {
-                // Try to find a walkable position in this region
-                Vector2 targetPos = findWalkablePositionInRegion(
-                    regionX, regionY, regionWidth, regionHeight);
-                regionTargets[region][i] = targetPos;
-            }
+    /**
+     * Sets the AI to exploration mode
+     */
+    public void setExplorationMode(boolean exploring) {
+        if (exploring) {
+            this.currentState = AIState.EXPLORING;
         }
     }
+    private void nudgePositionOffNode() {
+        // Only nudge along one axis: pick X or Y at random
+        boolean nudgeX = random.nextBoolean();
+        float offset = (random.nextBoolean() ? 1 : -1) * 2f; // 2px in either direction
 
-    // Find a walkable position within a specific region
-    private Vector2 findWalkablePositionInRegion(int regionX, int regionY, int width, int height) {
-        // Try up to 10 times to find a walkable position
-        for (int attempt = 0; attempt < 10; attempt++) {
-            float x = regionX + random.nextFloat() * width;
-            float y = regionY + random.nextFloat() * height;
-            Vector2 pos = new Vector2(x, y);
-
-            // Check if position is walkable
-            if (isWalkableFunction != null && isWalkableFunction.apply(pos)) {
-                return pos;
-            }
-        }
-
-        // If we couldn't find a walkable position, return the center of the region
-        // (we'll check walkability again when we try to move there)
-        return new Vector2(regionX + width/2, regionY + height/2);
-    }
-
-    public void update(float delta, Vector2 playerPosition, ArrayList<TreasureChest> treasureChests, boolean isAreaWalkable) {
-        // Always reset speed to base at the start of each update cycle.
-        this.speed = baseSpeed;
-
-        // Update timer and counters.
-        targetUpdateTimer += delta;
-        if (directionChangeCounter >= 0) {
-            directionChangeCounter++;
-        }
-
-        // Compute adaptive hotspot probability.
-        float hotspotProbability = Math.min(1.0f, 0.3f + 0.05f * treasureHotspots.size());
-
-        // Check if we need to update the target.
-        if (currentTarget == null || targetUpdateTimer >= targetUpdateInterval ||
-            (currentTarget != null && position.dst(currentTarget) < 32)) {
-            // Update target and apply boost if using hotspot
-
-
-            targetUpdateTimer = 0;
-            boolean useHotspot = false;
-            updatesSinceHotspot++;  // Increase the counter since no hotspot used yet.
-
-            // Decide whether to use a hotspot.
-            if (hasVisitedTreasureLocation && !treasureHotspots.isEmpty()) {
-                if (random.nextFloat() < hotspotProbability || updatesSinceHotspot >= forceHotspotInterval) {
-                    useHotspot = true;
-                }
-            }
-
-            if (useHotspot) {
-                currentTarget = treasureHotspots.get(random.nextInt(treasureHotspots.size()));
-                // Apply speed boost.
-                this.speed = baseSpeed * 1.5f;
-                updatesSinceHotspot = 0;
-            } else {
-                chooseRegionalTarget();
-            }
-
-            // Verify the new target is walkable and update direction.
-            ensureWalkableTarget();
-            chooseDirectionToTarget();
-        }
-
-        // Gradually decay speed back to baseSpeed.
-        float decayFactor = 0.1f;
-        this.speed = this.speed - decayFactor * (this.speed - baseSpeed);
-    }
-
-
-    private void ensureWalkableTarget() {
-        if (currentTarget == null || isWalkableFunction == null) return;
-
-        // Check if current target is walkable
-        if (!isWalkableFunction.apply(currentTarget)) {
-            // Try to find a walkable target nearby
-            for (int attempt = 0; attempt < 8; attempt++) {
-                // Try different directions
-                float angle = attempt * (360f / 8);
-                float distance = 50; // Search 50 pixels away
-                float x = currentTarget.x + (float)Math.cos(Math.toRadians(angle)) * distance;
-                float y = currentTarget.y + (float)Math.sin(Math.toRadians(angle)) * distance;
-
-                // Keep within map bounds
-                x = Math.min(Math.max(x, 0), mapWidth - 1);
-                y = Math.min(Math.max(y, 0), mapHeight - 1);
-
-                Vector2 newTarget = new Vector2(x, y);
-                if (isWalkableFunction.apply(newTarget)) {
-                    currentTarget = newTarget;
-                    return;
-                }
-            }
-
-            // If we still can't find a walkable target, choose a new region
-            currentRegion = (currentRegion + 1) % 9;
-            chooseRegionalTarget();
-        }
-    }
-
-    private void chooseRegionalTarget() {
-        // Get a target from the current region
-        int targetIndex = random.nextInt(3); // Each region has 3 targets
-        currentTarget = regionTargets[currentRegion][targetIndex];
-
-        // If we're close to the target or by random chance, move to next region
-        if (position.dst(currentTarget) < 100 || random.nextFloat() < 0.2f) {
-            // Move to the next region
-            currentRegion = (currentRegion + 1) % 9;
-        }
-    }
-
-    // Choose one of the four cardinal directions to move toward the target
-    // Replace chooseDirectionToTarget method with this improved version
-    private void chooseDirectionToTarget() {
-        if (currentTarget == null) return;
-
-        // Calculate the differences
-        float dx = currentTarget.x - position.x;
-        float dy = currentTarget.y - position.y;
-
-        // Introduce a tolerance level (e.g., 10 pixels)
-        float tolerance = 10f;
-
-        Direction preferredDirection;
-
-        // Only prioritize one axis if the difference is significantly higher than the other.
-        if (Math.abs(dx) - Math.abs(dy) > tolerance) {
-            preferredDirection = dx > 0 ? Direction.RIGHT : Direction.LEFT;
-        } else if (Math.abs(dy) - Math.abs(dx) > tolerance) {
-            preferredDirection = dy > 0 ? Direction.UP : Direction.DOWN;
+        if (nudgeX) {
+            position.x += offset;
         } else {
-            // If differences are similar, stick to the current direction to avoid oscillations.
-            preferredDirection = currentDirection;
+            position.y += offset;
         }
 
-        // Check for immediate reversal
-        boolean wouldReverseDirection =
-            (preferredDirection == Direction.UP && currentDirection == Direction.DOWN) ||
-                (preferredDirection == Direction.DOWN && currentDirection == Direction.UP) ||
-                (preferredDirection == Direction.LEFT && currentDirection == Direction.RIGHT) ||
-                (preferredDirection == Direction.RIGHT && currentDirection == Direction.LEFT);
+        // Reset velocity so we don't treat this as diagonal movement
+        linearVelocity.setZero();
+        // Also reset previousPosition so stuck detection doesn't immediately retrigger
+        previousPosition.set(position);
+    }
 
-        if (wouldReverseDirection && directionChangeCounter < MIN_STEPS_BEFORE_REVERSAL) {
-            // Maintain current direction to avoid immediate back-and-forth.
-            directionChangeCounter++;
-        } else {
-            lastDirection = currentDirection;
-            currentDirection = preferredDirection;
-            // Reset counter when direction change is accepted.
-            if (lastDirection != currentDirection) {
-                directionChangeCounter = 0;
+    /**
+     * Updates the AI's position and behavior
+     */
+    public void update(float delta, GameScreen gameScreen) {
+        // --- 1) STUCK DETECTION ---
+        // --- 8) STUCK DETECTION (after movement) ---
+        // --- 4) DATABASE / HINT‑BASED TARGET UPDATES ---
+        boolean targetUpdated = databaseManager.updateAITarget(
+            delta,
+            gameScreen.getCurrentHint(),
+            gameScreen.getLandmarks()
+        );
+        if (hasTarget) {
+            if (!movedThisFrame) {
+                stuckTimer += delta;
             } else {
-                directionChangeCounter++;
+                stuckTimer = 0f;
+            }
+
+            if (stuckTimer > STUCK_THRESHOLD) {
+                onStuck(gameScreen);
+                stuckTimer = 0f;
+            }
+        }
+
+        previousPosition.set(position);
+
+        if (stuckTimer > STUCK_THRESHOLD) {
+            onStuck(gameScreen);
+            stuckTimer = 0f;
+        }
+
+        // --- 2) SPEED BOOST UPDATE ---
+        if (isSpeedBoostActive) {
+            speedBoostTimer += delta;
+            if (speedBoostTimer >= speedBoostDuration) {
+                isSpeedBoostActive = false;
+                moveSpeed = normalMoveSpeed;
+                maxLinearSpeed = moveSpeed;
+            }
+        }
+
+        // --- 3) PATH REFRESH LOGIC ---
+        pathRefreshTimer += delta;
+        if ((pathNeedsRefresh || pathRefreshTimer > PATH_REFRESH_INTERVAL) && hasTarget) {
+            snapToValidNode();
+            findPathToTarget(gameScreen);
+            pathRefreshTimer = 0f;
+            pathNeedsRefresh = false;
+        }
+
+        // --- 5) FALLBACK TARGET SELECTION ---
+        if (!hasTarget && !targetUpdated) {
+            switch (currentState) {
+                case ROAMING:
+                    findRandomTarget(gameScreen);
+                    break;
+                case EXPLORING:
+                    findExplorationTarget(gameScreen);
+                    break;
+                case SEEKING:
+                    // If seeking but no target, revert to exploring
+                    if (!hasTarget) {
+                        currentState = AIState.EXPLORING;
+                        findExplorationTarget(gameScreen);
+                    }
+                    break;
+            }
+        }
+
+        // --- 6) MOVE ALONG CURRENT PATH ---
+        moveAlongPath(delta, gameScreen);
+
+        // --- 7) UPDATE VISUAL FACING DIRECTION ---
+        updateDirection(delta);
+    }
+    private Vector2 clampInside(Vector2 pos) {
+        // Grab map and tile dims from your graph
+        int mapW = mapGraph.getWidth();   // you may need to add getters in TiledMapGraph
+        int mapH = mapGraph.getHeight();
+        int tW   = mapGraph.getTileWidth();
+        int tH   = mapGraph.getTileHeight();
+
+        float minX = tW;
+        float maxX = mapW * tW - tW;
+        float minY = tH;
+        float maxY = mapH * tH - tH;
+
+        pos.x = MathUtils.clamp(pos.x, minX, maxX);
+        pos.y = MathUtils.clamp(pos.y, minY, maxY);
+        return pos;
+    }
+
+    private void onStuck(GameScreen gameScreen) {
+        repathAttempts++;
+
+        // 1) Snap or nudge off the exact same spot
+        //    Option A: just snap to nearest valid node:
+        snapToValidNode();
+        //    Option B: nudgePositionOffNode();
+        // nudgePositionOffNode();
+
+        // 2) Clear the old path and target
+        currentPath.clear();
+        pathNeedsRefresh = false;
+        hasTarget = false;
+
+        // 3) Pick a fresh goal
+        if (repathAttempts >= MAX_REPATH_ATTEMPTS) {
+            repathAttempts = 0;
+            findRandomTarget(gameScreen);
+        } else {
+            findExplorationTarget(gameScreen);
+        }
+
+        // 4) Reset velocity again just in case
+        linearVelocity.setZero();
+        previousPosition.set(position);
+    }
+
+
+
+    /**
+     * Finds a path to the current target
+     */
+    private void findPathToTarget(GameScreen gameScreen) {
+        // 1) Bail out if there’s no target or the graph isn’t built yet
+        if (!hasTarget || mapGraph == null) return;
+
+        // 2) If we’re already very close to the target, clear it and stop
+        if (position.dst(targetPosition) < 32f) {
+            hasTarget = false;
+            return;
+        }
+
+        // 3) Early‐exit if we’re already on a valid, improving path
+        if (currentPath.getCount() > 0 && currentPathIndex < currentPath.getCount()) {
+            if (position.dst(targetPosition) < lastDistanceToTarget) {
+                return;
+            }
+        }
+
+        // 4) Remember how far we were last time
+        lastDistanceToTarget = position.dst(targetPosition);
+
+        // 5) Clear out the old path & any debug visualization
+        currentPath.clear();
+        pathVisualizer.clear();
+
+        // 6) Find the start/end nodes on the grid
+        TiledNode startNode = mapGraph.getNodeAtWorldCoordinates(position.x, position.y);
+        TiledNode endNode   = mapGraph.getNodeAtWorldCoordinates(targetPosition.x, targetPosition.y);
+
+        if (startNode != null && endNode != null) {
+            // 7) Run A* search into currentPath
+            MapHeuristic heuristic = new MapHeuristic();
+            pathFinder.searchNodePath(startNode, endNode, heuristic, currentPath);
+
+            // 8) Reset index so we start at the first node
+            currentPathIndex = 0;
+
+            // 9) Build a simple debug list of world‐space points
+            for (TiledNode node : currentPath) {
+                pathVisualizer.add(new Vector2(node.x, node.y));
+            }
+
+            System.out.println("Path found with " + currentPath.getCount() + " nodes");
+        } else {
+            // 10) If either end is off‐grid, bail out
+            System.out.println("Path finding failed – invalid start or end node");
+            hasTarget = false;
+        }
+    }
+    /**
+     * Moves the AI along the current path
+     */
+    private void moveAlongPath(float delta, GameScreen gameScreen) {
+        movedThisFrame = false;
+        if (currentPath.getCount() == 0) return;
+        if (currentPathIndex >= currentPath.getCount()) {
+            if (position.dst(targetPosition) < 32f) hasTarget = false;
+            return;
+        }
+
+        // 1) Figure out which cardinal direction we _should_ be heading
+        TiledNode nextNode = currentPath.get(currentPathIndex);
+        Vector2 nextPos = new Vector2(nextNode.x, nextNode.y);
+        float dx = nextPos.x - position.x;
+        float dy = nextPos.y - position.y;
+
+        Direction desiredMove;
+        if (Math.abs(dx) > Math.abs(dy)) {
+            desiredMove = (dx > 0) ? Direction.RIGHT : Direction.LEFT;
+        } else {
+            desiredMove = (dy > 0) ? Direction.UP : Direction.DOWN;
+        }
+
+        // 2) If we're not yet facing that way, just turn—no movement this frame
+        if (currentDirection != desiredMove) {
+            currentDirection = desiredMove;
+            linearVelocity.setZero();
+            return;
+        }
+
+        // 3) Now that we're facing correctly, compute our velocity vector
+        Vector2 moveVec = new Vector2(
+            (currentDirection == Direction.RIGHT ? 1 : (currentDirection == Direction.LEFT ? -1 : 0)),
+            (currentDirection == Direction.UP    ? 1 : (currentDirection == Direction.DOWN  ? -1 : 0))
+        );
+        linearVelocity.set(moveVec).scl(moveSpeed);
+
+        // 4) Attempt to move (with your walkability checks)
+        Vector2 oldPos     = new Vector2(position);
+        Vector2 proposed   = oldPos.cpy().add(linearVelocity.x * delta, linearVelocity.y * delta);
+        if (gameScreen.isWalkable(proposed)) {
+            position.set(proposed);
+            movedThisFrame = true;
+
+        } else {
+            // fallback sliding
+            for (float scale = 0.9f; scale >= 0.1f; scale -= 0.1f) {
+                Vector2 tryPos = oldPos.cpy()
+                    .add(linearVelocity.x * delta * scale,
+                        linearVelocity.y * delta * scale);
+                if (gameScreen.isWalkable(tryPos)) {
+                    position.set(proposed);
+                    movedThisFrame = true;
+
+                    break;
+                }
+            }
+        }
+
+        // 5) Clamp inside map bounds
+        position.set(clampInside(position.cpy()));
+
+
+        // 6) If we got close enough, advance to the next node
+        if (position.dst(nextPos) < 5f) {
+            currentPathIndex++;
+            linearVelocity.setZero();
+            repathAttempts = 0;  // made progress
+        }
+    }
+    /**
+     * Call each frame (pass in delta), to debounce flickery direction changes
+     */
+    private void updateDirection(float delta) {
+        float vx = linearVelocity.x;
+        float vy = linearVelocity.y;
+
+        // If almost stationary, do nothing
+        if (Math.abs(vx) < zeroLinearSpeedThreshold && Math.abs(vy) < zeroLinearSpeedThreshold) {
+            return;
+        }
+
+        // Compute the “raw” new direction based on which axis dominates
+        Direction raw;
+        if (Math.abs(vx) > Math.abs(vy)) {
+            raw = vx > 0 ? Direction.RIGHT : Direction.LEFT;
+        } else {
+            raw = vy > 0 ? Direction.UP : Direction.DOWN;
+        }
+
+        // If it’s the same as our last raw read, accumulate time
+        if (raw == desiredDirection) {
+            directionTimer += delta;
+        } else {
+            // New candidate direction — reset timer
+            desiredDirection = raw;
+            directionTimer = 0f;
+        }
+
+        // Only commit to the new direction once we’ve been in it long enough
+        if (desiredDirection != currentDirection && directionTimer >= DIRECTION_CONFIRM_TIME) {
+            currentDirection = desiredDirection;
+        }
+    }
+
+
+    /**
+     * Finds a random target on the map
+     */
+    private void findRandomTarget(GameScreen gameScreen) {
+        if (mapGraph == null) return;
+
+        TiledNode node = mapGraph.getRandomWalkableNode();
+        if (node != null) {
+            // centralizes clamping + flag‐setting
+            setTarget(new Vector2(node.x, node.y), false);
+        }
+    }
+
+    /**
+     * Finds an exploration target, preferring unexplored areas
+     */
+    private void findExplorationTarget(GameScreen gameScreen) {
+        if (mapGraph == null) return;
+
+        TiledNode node = mapGraph.getUnexploredNode(position);
+        if (node != null) {
+            setTarget(new Vector2(node.x, node.y), false);
+        } else {
+            findRandomTarget(gameScreen);
+        }
+    }
+
+    /**
+     * Called when the AI collects a treasure or the player collects one
+     */
+    public void notifyTreasureCollected(Vector2 treasurePosition, boolean collectedByPlayer) {
+        // Notify the database manager
+        if (databaseManager != null) {
+            databaseManager.notifyTreasureCollected(treasurePosition);
+        }
+
+        TiledNode currentNode = mapGraph.getNodeAtWorldCoordinates(position.x, position.y);
+        if (currentNode == null) {
+            // Try to find nearest valid node to snap to
+            // ...
+        }
+
+
+        // If player collected the treasure, activate speed boost
+        if (collectedByPlayer) {
+            activateSpeedBoost();
+        } else {
+            // If AI collected the treasure, deactivate speed boost
+            isSpeedBoostActive = false;
+            moveSpeed = normalMoveSpeed;
+            maxLinearSpeed = moveSpeed;
+        }
+
+        // Reset target-seeking behavior
+        hasTarget = false;
+        currentState = AIState.EXPLORING;
+    }
+
+    /**
+     * Activates the speed boost for the AI
+     */
+    public void activateSpeedBoost() {
+        isSpeedBoostActive = true;
+        speedBoostTimer = 0f;
+        moveSpeed = fastMoveSpeed;
+        maxLinearSpeed = moveSpeed;
+        System.out.println("AI speed boost activated! New speed: " + moveSpeed);
+    }
+
+    /**
+     * Process hint information and update targeting
+     */
+    public void processHint(String hint, List<Landmark> landmarks) {
+        // Only process non-empty hints
+        if (hint == null || hint.isEmpty()) {
+            return;
+        }
+
+        System.out.println("SmartAI processing hint: " + hint);
+
+        // Force immediate hint processing
+        if (databaseManager != null) {
+            databaseManager.forceHintProcessing(hint, landmarks);
+
+            // We need to ensure the AI is in SEEKING state when a hint is processed
+            this.currentState = AIState.SEEKING;
+        }
+    }
+
+
+    /**
+     * Gets the current target position (for debugging)
+     */
+    public Vector2 getTargetPosition() {
+        if (hasTarget) {
+            return new Vector2(targetPosition);
+        }
+        return null;
+    }
+    // Add to SmartAI class
+    private void snapToValidNode() {
+        // Get the AI's current grid position
+        TiledNode currentNode = mapGraph.getNodeAtWorldCoordinates(position.x, position.y);
+
+        if (currentNode == null) {
+            // Find the closest valid node
+            TiledNode nearestNode = null;
+            float minDistance = Float.MAX_VALUE;
+
+            for (TiledNode node : mapGraph.getWalkableNodes()) {
+                float dist = Vector2.dst(position.x, position.y, node.x, node.y);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    nearestNode = node;
+                }
+            }
+
+            if (nearestNode != null) {
+                position.set(nearestNode.x, nearestNode.y);
             }
         }
     }
-
-    public Vector2 getMovementDirection() {
-        // Return a unit vector in one of the four cardinal directions
-        switch (currentDirection) {
-            case UP:
-                return new Vector2(0, 1);
-            case DOWN:
-                return new Vector2(0, -1);
-            case LEFT:
-                return new Vector2(-1, 0);
-            case RIGHT:
-                return new Vector2(1, 0);
-            default:
-                return new Vector2(0, 0);
-        }
-    }
-
+    /**
+     * Gets the current animation direction
+     */
     public Direction getCurrentDirection() {
         return currentDirection;
     }
 
-    public void addTreasureHotspot(Vector2 treasurePos) {
-        treasureHotspots.add(new Vector2(treasurePos));
-        hasVisitedTreasureLocation = true;
+    // Steerable interface implementation
+    @Override
+    public Vector2 getPosition() {
+        return position;
     }
 
-    // For debugging
-    public Vector2 getCurrentTarget() {
-        return currentTarget;
+    @Override
+    public float getOrientation() {
+        return 0;
+    }
+
+    @Override
+    public void setOrientation(float orientation) {
+    }
+
+    @Override
+    public Vector2 getLinearVelocity() {
+        return linearVelocity;
+    }
+
+    @Override
+    public float getAngularVelocity() {
+        return 0;
+    }
+
+    @Override
+    public float getBoundingRadius() {
+        return 32;
+    }
+
+    @Override
+    public boolean isTagged() {
+        return tagged;
+    }
+
+    @Override
+    public void setTagged(boolean tagged) {
+        this.tagged = tagged;
+    }
+
+    @Override
+    public float getZeroLinearSpeedThreshold() {
+        return zeroLinearSpeedThreshold;
+    }
+
+    @Override
+    public void setZeroLinearSpeedThreshold(float value) {
+        this.zeroLinearSpeedThreshold = value;
+    }
+
+    @Override
+    public float getMaxLinearSpeed() {
+        return maxLinearSpeed;
+    }
+
+    @Override
+    public void setMaxLinearSpeed(float maxLinearSpeed) {
+        this.maxLinearSpeed = maxLinearSpeed;
+    }
+
+    @Override
+    public float getMaxLinearAcceleration() {
+        return maxLinearAcceleration;
+    }
+
+    @Override
+    public void setMaxLinearAcceleration(float maxLinearAcceleration) {
+        this.maxLinearAcceleration = maxLinearAcceleration;
+    }
+
+    @Override
+    public float getMaxAngularSpeed() {
+        return maxAngularSpeed;
+    }
+
+    @Override
+    public void setMaxAngularSpeed(float maxAngularSpeed) {
+        this.maxAngularSpeed = maxAngularSpeed;
+    }
+
+    @Override
+    public float getMaxAngularAcceleration() {
+        return maxAngularAcceleration;
+    }
+
+    @Override
+    public void setMaxAngularAcceleration(float maxAngularAcceleration) {
+        this.maxAngularAcceleration = maxAngularAcceleration;
+    }
+
+    @Override
+    public float vectorToAngle(Vector2 vector) {
+        // Convert a vector to an angle
+        return (float)Math.atan2(vector.y, vector.x);
+    }
+
+    @Override
+    public Vector2 angleToVector(Vector2 outVector, float angle) {
+        // Convert an angle to a vector
+        outVector.x = MathUtils.cos(angle);
+        outVector.y = MathUtils.sin(angle);
+        return outVector;
+    }
+
+    @Override
+    public Location<Vector2> newLocation() {
+        return null;
+    }
+
+    /**
+     * Returns the visualized path for debugging
+     */
+    public Array<Vector2> getPathVisualizer() {
+        return pathVisualizer;
     }
 }
