@@ -29,7 +29,6 @@ import com.badlogic.gdx.maps.tiled.TiledMap;
 import com.badlogic.gdx.maps.tiled.renderers.OrthogonalTiledMapRenderer;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.utils.Array;
-import org.encog.ml.data.basic.BasicMLDataSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -65,14 +64,18 @@ public class GameScreen implements Screen {
     private int tileWidth;
     private int tileHeight;
     private float countdownTimer;
-    private float hintTimer = 0f;         // Accumulates time until 10 seconds have passed.
-    private String currentHint = "";      // The current hint message to display.
-    private final float HINT_INTERVAL = 10f; // Interval for showing a new hint (10 seconds).
+    private float hintTimer = 0f;
+    private String currentHint = "";
+    // Add these variables to GameScreen class
+    private boolean countdownActive = false;
+    private final float COUNTDOWN_DURATION = 3.0f; // 3 seconds countdown
+    private int currentCountdownNumber = 3;
+    private final float HINT_INTERVAL = 10f;
     private List<Landmark> landmarks = new ArrayList<>();
     // Add these variables to the GameScreen class
-    private float hintDisplayDuration = 3.0f; // Show hint for 3 seconds
-    private float currentHintDisplayTimer = 0f; // Track current display time
-    private boolean hintVisible = false; // Is the hint currently visible
+    private float hintDisplayDuration = 3.0f;
+    private float currentHintDisplayTimer = 0f;
+    private boolean hintVisible = false;
     // Add to GameScreen class
     private boolean hintButtonPressed = false;
     private float hintCooldown = 0f;
@@ -112,6 +115,17 @@ public class GameScreen implements Screen {
 
     // --- Treasure chests ---
     ArrayList<TreasureChest> treasureChests;
+
+    // Define an enum for spawn positions
+    private enum SpawnPosition {
+        TOP_RIGHT,
+        BOTTOM_RIGHT,
+        BOTTOM_LEFT,
+        CENTRE,
+        TOP_LEFT
+    }
+    private List<SpawnPosition> availableSpawnPositions;
+
 
     // Other game fields.
     private Random random;
@@ -186,12 +200,10 @@ public class GameScreen implements Screen {
         mapPixelWidth = mapTileWidth * tilePixelWidth;
         mapPixelHeight = mapTileHeight * tilePixelHeight;
 
-        // --- Set up the camera ---
         camera = new OrthographicCamera(mapPixelWidth, mapPixelHeight);
         camera.position.set(mapPixelWidth / 2f, mapPixelHeight / 2f, 0);
         camera.update();
 
-        // --- Load Sprite Sheets ---
         // Player sprites:
         Texture playerTexture = new Texture(Gdx.files.internal("player.png"));
         int expectedPlayerCols = 4, expectedPlayerRows = 4;
@@ -210,22 +222,7 @@ public class GameScreen implements Screen {
         // define the five canonical spawn tiles:
         spawnPoints = new ArrayList<>();
 
-
-// Calculate top-left area (using 15% buffer from the edges)
-        int bufferX = (int)(mapTileWidth * 0.05);
-        int bufferY = (int)(mapTileHeight * 0.05);
-
-// Static spawn for player in top-left
-        Vector2 playerSpawn = new Vector2(
-            bufferX * tileWidth + tileWidth/2,
-            (mapTileHeight - bufferY) * tileHeight - tileHeight/2);
-        player = new Player(playerSpawn.cpy());
-
-// Static spawn for AI slightly offset from player in the top-left area
-        Vector2 aiSpawn = new Vector2(
-            (bufferX + 2) * tileWidth + tileWidth/2,  // 2 tiles to the right of player spawn
-            (mapTileHeight - bufferY - 2) * tileHeight - tileHeight/2);  // 2 tiles below player spawn
-        ai = new SmartAI(aiSpawn.cpy(), currentMapName);
+        createSpawnPositions();
 
         ai.scanWalkableAreas(this, tiledMap);
 
@@ -303,6 +300,92 @@ public class GameScreen implements Screen {
             return new Vector2(100, 100);
         }
         return spawnPoints.get(random.nextInt(spawnPoints.size()));
+    }
+
+    private void initializeSpawnPositions() {
+        availableSpawnPositions = new ArrayList<>();
+        availableSpawnPositions.add(SpawnPosition.TOP_RIGHT);
+        availableSpawnPositions.add(SpawnPosition.BOTTOM_RIGHT);
+        availableSpawnPositions.add(SpawnPosition.BOTTOM_LEFT);
+        availableSpawnPositions.add(SpawnPosition.CENTRE);
+        availableSpawnPositions.add(SpawnPosition.TOP_LEFT);
+    }
+    /**
+     * Creates spawn positions for player and AI using one of the predefined positions
+     * This is called from constructor and resetRound
+     */
+    private void createSpawnPositions() {
+        int mapTileWidth = tiledMap.getProperties().get("width", Integer.class);
+        int mapTileHeight = tiledMap.getProperties().get("height", Integer.class);
+
+        // Calculate buffer from edges (15% of the way in from each side)
+        int bufferX = (int)(mapTileWidth * 0.15);
+        int bufferY = (int)(mapTileHeight * 0.15);
+
+        // Initialize or reset available positions
+        initializeSpawnPositions();
+
+        // Randomly select position for player
+        SpawnPosition playerPosition = getRandomSpawnPosition();
+
+        // Create player spawn based on selected position
+        Vector2 playerSpawn = createPositionVector(playerPosition, mapTileWidth, mapTileHeight, bufferX, bufferY);
+        player = new Player(playerSpawn.cpy());
+
+        // Get a different position for AI
+        SpawnPosition aiPosition = getRandomSpawnPosition();
+
+        // Create AI spawn based on selected position
+        Vector2 aiSpawn = createPositionVector(aiPosition, mapTileWidth, mapTileHeight, bufferX, bufferY);
+        ai = new SmartAI(aiSpawn.cpy(), currentMapName);
+        ai.scanWalkableAreas(this, tiledMap);
+
+        System.out.println("Player spawned at: " + playerPosition + ", AI spawned at: " + aiPosition);
+    }
+
+    /**
+     * Selects a random spawn position and removes it from available positions
+     * @return A randomly selected spawn position
+     */
+    private SpawnPosition getRandomSpawnPosition() {
+        if (availableSpawnPositions.isEmpty()) {
+            // If no positions left, reinitialize (shouldn't happen, but just in case)
+            initializeSpawnPositions();
+        }
+
+        int index = random.nextInt(availableSpawnPositions.size());
+        SpawnPosition position = availableSpawnPositions.get(index);
+        availableSpawnPositions.remove(index);
+        return position;
+    }
+
+    /**
+     * Creates a Vector2 position based on the selected spawn position
+     */
+    private Vector2 createPositionVector(SpawnPosition position, int mapTileWidth, int mapTileHeight, int bufferX, int bufferY) {
+        switch (position) {
+            case TOP_RIGHT:
+                return new Vector2(
+                    (mapTileWidth - bufferX) * tileWidth - tileWidth/2,
+                    (mapTileHeight - bufferY) * tileHeight - tileHeight/2);
+            case BOTTOM_RIGHT:
+                return new Vector2(
+                    (mapTileWidth - bufferX) * tileWidth - tileWidth/2,
+                    bufferY * tileHeight + tileHeight/2);
+            case BOTTOM_LEFT:
+                return new Vector2(
+                    bufferX * tileWidth + tileWidth/2,
+                    bufferY * tileHeight + tileHeight/2);
+            case CENTRE:
+                return new Vector2(
+                    (mapTileWidth/2) * tileWidth,
+                    (mapTileHeight/2) * tileHeight);
+            case TOP_LEFT:
+            default:
+                return new Vector2(
+                    bufferX * tileWidth + tileWidth/2,
+                    (mapTileHeight - bufferY) * tileHeight - tileHeight/2);
+        }
     }
 
     private void showAISpeedBoostEffect() {
@@ -1097,10 +1180,6 @@ public class GameScreen implements Screen {
         }
     }
 
-    // Modify the resetRound method to rescan the map when resetting the round
-// In the GameScreen class, modify the resetRound method like this:
-// In GameScreen.java, modify the resetRound() method:
-
     /**
      * Example of how to modify the resetRound method to work with the new AI
      * Update your resetRound method to include this logic
@@ -1118,30 +1197,7 @@ public class GameScreen implements Screen {
         hintAvailable = true;
         hintCooldown = 0f;
 
-        // Calculate the full map dimensions in pixels.
-        int mapTileWidth = tiledMap.getProperties().get("width", Integer.class);
-        int mapTileHeight = tiledMap.getProperties().get("height", Integer.class);
-        int tilePixelWidth = tiledMap.getProperties().get("tilewidth", Integer.class);
-        int tilePixelHeight = tiledMap.getProperties().get("tileheight", Integer.class);
-        // Calculate tile dimensions.
-        tileWidth = tiledMap.getProperties().get("tilewidth", Integer.class);
-        tileHeight = tiledMap.getProperties().get("tileheight", Integer.class);
-
-        // Calculate top-left area (using 15% buffer from the edges)
-        int bufferX = (int)(mapTileWidth * 0.15);
-        int bufferY = (int)(mapTileHeight * 0.15);
-
-// Static spawn for player in top-left
-        Vector2 playerSpawn = new Vector2(
-            bufferX * tileWidth + tileWidth/2,
-            (mapTileHeight - bufferY) * tileHeight - tileHeight/2);
-        player = new Player(playerSpawn.cpy());
-
-// Static spawn for AI slightly offset from player in the top-left area
-        Vector2 aiSpawn = new Vector2(
-            (bufferX + 2) * tileWidth + tileWidth/2,  // 2 tiles to the right of player spawn
-            (mapTileHeight - bufferY - 2) * tileHeight - tileHeight/2);  // 2 tiles below player spawn
-        ai = new SmartAI(aiSpawn.cpy(), currentMapName);
+        createSpawnPositions();
 
         // Reload all landmarks from the map
         loadAllLandmarksFromObjectGroups();
