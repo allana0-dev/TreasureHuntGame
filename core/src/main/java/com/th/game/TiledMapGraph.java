@@ -4,14 +4,9 @@ import com.badlogic.gdx.ai.pfa.Connection;
 import com.badlogic.gdx.ai.pfa.DefaultConnection;
 import com.badlogic.gdx.ai.pfa.indexed.IndexedGraph;
 import com.badlogic.gdx.maps.tiled.TiledMap;
-import com.badlogic.gdx.maps.tiled.TiledMapTileLayer;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.ObjectMap;
-
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 import java.util.Random;
 
 /**
@@ -105,7 +100,6 @@ public class TiledMapGraph implements IndexedGraph<TiledNode> {
             connectionMap.put(node, connections);
         }
 
-        System.out.println("Built navigation graph with " + nodes.size + " nodes");
     }
 
     /**
@@ -140,22 +134,12 @@ public class TiledMapGraph implements IndexedGraph<TiledNode> {
         int gridX = (int)(x / tileWidth);
         int gridY = (int)(y / tileHeight);
 
-        // Debug info
-        System.out.println("Looking for node at grid: " + gridX + "," + gridY +
-            " (world: " + x + "," + y + ")");
 
         // Ensure we're within bounds
         if (gridX >= 0 && gridX < mapWidth && gridY >= 0 && gridY < mapHeight) {
             TiledNode node = nodeMap[gridX][gridY];
-            if (node == null) {
-                System.out.println("  - No node found at this grid position");
-            } else {
-                System.out.println("  - Found node: " + node);
-            }
             return node;
         }
-
-        System.out.println("  - Position out of map bounds");
         return null;
     }
     /**
@@ -264,7 +248,6 @@ public class TiledMapGraph implements IndexedGraph<TiledNode> {
             }
         }
 
-        System.out.println("Reset exploration state");
     }
 
     /**

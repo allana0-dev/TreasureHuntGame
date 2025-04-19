@@ -4,6 +4,8 @@ import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
 import com.badlogic.gdx.Screen;
 import com.badlogic.gdx.audio.Music;
+import com.badlogic.gdx.graphics.Pixmap;
+import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.audio.Sound;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
@@ -44,6 +46,14 @@ public class GameScreen implements Screen {
     private final float ROUND_POPUP_DURATION = 2.5f; // Show popup for 2.5 seconds
     private BitmapFont largeFont; // For round popup text
 
+    //speedboost
+    private boolean showingAISpeedBoost = false;
+    private float speedBoostEffectTimer = 0f;
+    private final float SPEED_BOOST_EFFECT_DURATION = 3.0f; // Show effect for 3 seconds
+    private final Color SPEED_BOOST_COLOR = new Color(1f, 0.4f, 0.2f, 0.7f); // Orange/red glow
+    private boolean pulseDirectionUp = true;
+    private float pulseAlpha = 0.4f;
+    private Texture speedBoostTexture;
 
     // Map & rendering objects.
     TiledMap tiledMap;
@@ -199,19 +209,22 @@ public class GameScreen implements Screen {
 
         // define the five canonical spawn tiles:
         spawnPoints = new ArrayList<>();
-        initializeSpawnPoints();
 
 
+// Calculate top-left area (using 15% buffer from the edges)
+        int bufferX = (int)(mapTileWidth * 0.05);
+        int bufferY = (int)(mapTileHeight * 0.05);
 
-        // Now use the spawnPoints when spawning player and AI
-        Vector2 playerSpawn = getRandomSpawnPoint();
+// Static spawn for player in top-left
+        Vector2 playerSpawn = new Vector2(
+            bufferX * tileWidth + tileWidth/2,
+            (mapTileHeight - bufferY) * tileHeight - tileHeight/2);
         player = new Player(playerSpawn.cpy());
 
-        // Option A: pick a different random spawn for the AI
-        Vector2 aiSpawn;
-        do {
-            aiSpawn = getRandomSpawnPoint();
-        } while (aiSpawn.epsilonEquals(playerSpawn, 1e-3f));
+// Static spawn for AI slightly offset from player in the top-left area
+        Vector2 aiSpawn = new Vector2(
+            (bufferX + 2) * tileWidth + tileWidth/2,  // 2 tiles to the right of player spawn
+            (mapTileHeight - bufferY - 2) * tileHeight - tileHeight/2);  // 2 tiles below player spawn
         ai = new SmartAI(aiSpawn.cpy(), currentMapName);
 
         ai.scanWalkableAreas(this, tiledMap);
@@ -279,44 +292,7 @@ public class GameScreen implements Screen {
     public TiledMap getTiledMap() {
         return tiledMap;
     }
-    private void initializeSpawnPoints() {
-        int mapTileWidth = tiledMap.getProperties().get("width", Integer.class);
-        int mapTileHeight = tiledMap.getProperties().get("height", Integer.class);
 
-        // Clear any existing spawn points
-        spawnPoints.clear();
-
-        // Calculate buffer from edges (25% of the way in from each side)
-        int bufferX = (int)(mapTileWidth * 0.25);
-        int bufferY = (int)(mapTileHeight * 0.25);
-
-        // Add spawn positions with better spacing from edges
-        // bottom-left quadrant
-        spawnPoints.add(new Vector2(
-            bufferX * tileWidth + tileWidth/2,
-            bufferY * tileHeight + tileHeight/2));
-
-        // bottom-right quadrant
-        spawnPoints.add(new Vector2(
-            (mapTileWidth - bufferX) * tileWidth - tileWidth/2,
-            bufferY * tileHeight + tileHeight/2));
-
-        // top-left quadrant
-        spawnPoints.add(new Vector2(
-            bufferX * tileWidth + tileWidth/2,
-            (mapTileHeight - bufferY) * tileHeight - tileHeight/2));
-
-        // top-right quadrant
-        spawnPoints.add(new Vector2(
-            (mapTileWidth - bufferX) * tileWidth - tileWidth/2,
-            (mapTileHeight - bufferY) * tileHeight - tileHeight/2));
-
-        // center
-        spawnPoints.add(new Vector2(
-            (mapTileWidth/2) * tileWidth,
-            (mapTileHeight/2) * tileHeight));
-
-    }
     /**
      * Returns a random spawn point from the list
      * @return A randomly selected spawn point
@@ -328,6 +304,14 @@ public class GameScreen implements Screen {
         }
         return spawnPoints.get(random.nextInt(spawnPoints.size()));
     }
+
+    private void showAISpeedBoostEffect() {
+        showingAISpeedBoost = true;
+        speedBoostEffectTimer = 0f;
+        pulseDirectionUp = true;
+        pulseAlpha = 0.4f;
+    }
+
 
 
     /**
@@ -581,9 +565,65 @@ public class GameScreen implements Screen {
         font.setColor(Color.RED);
         font.draw(batch, "AI", ai.position.x + 25, ai.position.y + 80);
         font.setColor(Color.WHITE);
+        // Update pulse effect
+        if (showingAISpeedBoost) {
+            speedBoostEffectTimer += delta;
+        if (pulseDirectionUp) {
+            pulseAlpha += delta * 1.5f;
+            if (pulseAlpha >= 0.8f) {
+                pulseAlpha = 0.8f;
+                pulseDirectionUp = false;
+            }
+        } else {
+            pulseAlpha -= delta * 1.5f;
+            if (pulseAlpha <= 0.4f) {
+                pulseAlpha = 0.4f;
+                pulseDirectionUp = true;
+            }
+        }
 
-        // --- Draw Heads Up Display (HUD) ---
-// Scores at the top left
+        // End effect after duration
+        if (speedBoostEffectTimer >= SPEED_BOOST_EFFECT_DURATION) {
+            showingAISpeedBoost = false;
+        } else {
+            // Calculate fade out near the end
+            float alpha = 1.0f;
+            if (speedBoostEffectTimer > SPEED_BOOST_EFFECT_DURATION - 0.5f) {
+                alpha = (SPEED_BOOST_EFFECT_DURATION - speedBoostEffectTimer) / 0.5f;
+            }
+
+            // Save the batch color
+            Color prevColor = batch.getColor().cpy();
+
+            // Draw the glow effect
+            Color effectColor = new Color(SPEED_BOOST_COLOR);
+            effectColor.a = pulseAlpha * alpha;
+            batch.setColor(effectColor);
+
+            // Draw outer glow (larger circle)
+            float glowSize = 90f;
+            batch.draw(
+                getSpeedBoostTexture(),
+                ai.position.x + 32 - glowSize/2,
+                ai.position.y + 32 - glowSize/2,
+                glowSize, glowSize
+            );
+
+            // Draw speed boost text
+            font.setColor(1f, 0.8f, 0.2f, alpha); // Golden yellow text
+            GlyphLayout layout = new GlyphLayout(font, "SPEED BOOST!");
+            font.draw(batch, "SPEED BOOST!",
+                ai.position.x + 32 - layout.width/2,
+                ai.position.y + 95);
+
+            // Restore previous color
+            batch.setColor(prevColor);
+            font.setColor(Color.WHITE);
+        }
+    }
+
+
+    // --- Draw Heads Up Display (HUD) ---
         font.draw(batch, "Player Score: " + player.score, camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 20);
         font.draw(batch, "AI Score: " + ai.score, camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 40);
 
@@ -649,14 +689,12 @@ public class GameScreen implements Screen {
             // Reset font color
             largeFont.setColor(prevColor);
         }
-// Hint button below scores
         if (hintAvailable) {
             font.draw(batch, "Press H for Hint", camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 60);
         } else {
             font.draw(batch, "Hint available in: " + (int)hintCooldown, camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 60);
         }
 
-// Current hint at top center
         if (hintVisible && !currentHint.isEmpty()) {
             float alpha = 1.0f;
             // Fade calculations...
@@ -670,13 +708,48 @@ public class GameScreen implements Screen {
 
 
 
-// Timer at top right (unchanged)
         if (settings.gameMode == GameSettings.GameMode.TIMER) {
             int timeLeft = (int) countdownTimer;
             font.draw(batch, "Time Left: " + timeLeft, camera.position.x + 250, camera.position.y + (camera.viewportHeight / 2f) - 20);
         }
 
         batch.end();
+    }
+
+    private Texture getSpeedBoostTexture() {
+        if (speedBoostTexture == null) {
+            final int size = 128;                        // larger for smoother edges
+            Pixmap pixmap = new Pixmap(size, size, Pixmap.Format.RGBA8888);
+            pixmap.setBlending(Pixmap.Blending.SourceOver);
+
+            float center = size * 0.5f;
+            float sigma  = size * 0.25f;                 // controls the width of the glow
+            float twoSigmaSq = 2 * sigma * sigma;
+
+            // pre‑compute color channels
+            float r = 1f, g = 0.5f, b = 0.2f;
+
+            for (int y = 0; y < size; y++) {
+                for (int x = 0; x < size; x++) {
+                    float dx = x - center;
+                    float dy = y - center;
+                    float distSq = dx*dx + dy*dy;
+
+                    // Gaussian formula: exp(−d²/(2σ²))
+                    float alpha = (float)Math.exp(-distSq / twoSigmaSq);
+
+                    // drop very faint pixels
+                    if (alpha < 0.01f) continue;
+
+                    pixmap.setColor(r, g, b, alpha);
+                    pixmap.drawPixel(x, y);
+                }
+            }
+
+            speedBoostTexture = new Texture(pixmap);
+            pixmap.dispose();
+        }
+        return speedBoostTexture;
     }
 
     private String generateHintForTreasure(TreasureChest chest) {
@@ -812,10 +885,6 @@ public class GameScreen implements Screen {
             playerDirection = Direction.DOWN;
         }
 
-        int mapTileWidth = tiledMap.getProperties().get("width", Integer.class);
-        int mapTileHeight = tiledMap.getProperties().get("height", Integer.class);
-        int tilePixelWidth = tiledMap.getProperties().get("tilewidth", Integer.class);
-        int tilePixelHeight = tiledMap.getProperties().get("tileheight", Integer.class);
         player.position.x = MathUtils.clamp(player.position.x, 0, mapPixelWidth - 64);
         player.position.y = MathUtils.clamp(player.position.y, 0, mapPixelHeight - 64);
         if (!isWalkable(player.position)) {
@@ -845,6 +914,8 @@ public class GameScreen implements Screen {
 
                     // Notify AI that player collected a treasure
                     ai.notifyTreasureCollected(chest.position, true);
+                    // Show the speed boost effect
+                    showAISpeedBoostEffect();
 
                     // Remove associated landmark hints
                     Iterator<Landmark> iter = landmarks.iterator();
@@ -861,7 +932,7 @@ public class GameScreen implements Screen {
         }
 
         // Handle hint button
-// In handlePlayerInput(), inside your H‐key block:
+
         if (Gdx.input.isKeyJustPressed(Input.Keys.H) && hintAvailable) {
             currentHint = generateGlobalHint();
             if (!currentHint.isEmpty()) {
@@ -871,18 +942,11 @@ public class GameScreen implements Screen {
                 hintAvailable = false;
                 hintCooldown = HINT_COOLDOWN_DURATION;
 
-                // 1) process it for your HistoricalAIData (for later hint‐expansion)
+                // Forward the hint to the AI for processing - the AI should handle everything internally
+                System.out.println("Player pressed H - sending hint to AI: " + currentHint);
                 ai.processHint(currentHint, landmarks);
 
-                // 2) *right now* pick the landmark and force the AI target:
-                for (Landmark lm : landmarks) {
-                    String pretty = lm.name.replace("_"," ").toLowerCase();
-                    if (currentHint.toLowerCase().contains(pretty)) {
-                        // immediately send the AI straight there
-                        ai.setTarget(lm.position.cpy(), true);
-                        break;
-                    }
-                }
+                // Don't manually set AI target here - let the AI's hint processing handle it
             }
         }
     }
@@ -893,9 +957,6 @@ public class GameScreen implements Screen {
      * Replace your existing updateAI method with this one
      */
     private void updateAI(float delta) {
-        // Update the AI's state and movement
-        // In the GameScreen class update method:
-        System.out.println("AI position: " + ai.position + ", hasTarget: " + ((SmartAI)ai).getTargetPosition());
 
         ai.update(delta, this);
 
@@ -1057,15 +1118,30 @@ public class GameScreen implements Screen {
         hintAvailable = true;
         hintCooldown = 0f;
 
-        // Use the spawn points list to respawn entities
-        Vector2 newPlayer = getRandomSpawnPoint();
-        player.position.set(newPlayer);
+        // Calculate the full map dimensions in pixels.
+        int mapTileWidth = tiledMap.getProperties().get("width", Integer.class);
+        int mapTileHeight = tiledMap.getProperties().get("height", Integer.class);
+        int tilePixelWidth = tiledMap.getProperties().get("tilewidth", Integer.class);
+        int tilePixelHeight = tiledMap.getProperties().get("tileheight", Integer.class);
+        // Calculate tile dimensions.
+        tileWidth = tiledMap.getProperties().get("tilewidth", Integer.class);
+        tileHeight = tiledMap.getProperties().get("tileheight", Integer.class);
 
-        Vector2 newAI;
-        do {
-            newAI = getRandomSpawnPoint();
-        } while (newAI.epsilonEquals(newPlayer, 1e-3f));
-        ai.position.set(newAI);
+        // Calculate top-left area (using 15% buffer from the edges)
+        int bufferX = (int)(mapTileWidth * 0.15);
+        int bufferY = (int)(mapTileHeight * 0.15);
+
+// Static spawn for player in top-left
+        Vector2 playerSpawn = new Vector2(
+            bufferX * tileWidth + tileWidth/2,
+            (mapTileHeight - bufferY) * tileHeight - tileHeight/2);
+        player = new Player(playerSpawn.cpy());
+
+// Static spawn for AI slightly offset from player in the top-left area
+        Vector2 aiSpawn = new Vector2(
+            (bufferX + 2) * tileWidth + tileWidth/2,  // 2 tiles to the right of player spawn
+            (mapTileHeight - bufferY - 2) * tileHeight - tileHeight/2);  // 2 tiles below player spawn
+        ai = new SmartAI(aiSpawn.cpy(), currentMapName);
 
         // Reload all landmarks from the map
         loadAllLandmarksFromObjectGroups();
@@ -1199,6 +1275,9 @@ public class GameScreen implements Screen {
         }
         if (duringGameMusic != null) {
             duringGameMusic.dispose();
+        }
+        if (speedBoostTexture != null) {
+            speedBoostTexture.dispose();
         }
 
     }

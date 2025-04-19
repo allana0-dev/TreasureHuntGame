@@ -109,9 +109,6 @@ public class SmartAI implements Steerable<Vector2> {
 
         // Create the pathfinder
         pathFinder = new IndexedAStarPathFinder<>(mapGraph, true);
-
-        System.out.println("Map scanning complete. Pathfinding graph built with " +
-            ((IndexedGraph<TiledNode>)mapGraph).getNodeCount() + " nodes.");
     }
 
     /**
@@ -195,7 +192,6 @@ public class SmartAI implements Steerable<Vector2> {
                 isSpeedBoostActive = false;
                 moveSpeed = normalMoveSpeed;
                 maxLinearSpeed = moveSpeed;
-                System.out.println("AI speed boost expired. Speed returned to normal: " + moveSpeed);
             }
         }
 
@@ -251,7 +247,6 @@ public class SmartAI implements Steerable<Vector2> {
     }
 
     private void onStuck(GameScreen gameScreen) {
-        System.out.println("AI detected as stuck—resetting path/target");
         repathAttempts++;
 
         // 1) Snap or nudge off the exact same spot
@@ -296,7 +291,6 @@ public class SmartAI implements Steerable<Vector2> {
         // 3) Early‐exit if we’re already on a valid, improving path
         if (currentPath.getCount() > 0 && currentPathIndex < currentPath.getCount()) {
             if (position.dst(targetPosition) < lastDistanceToTarget) {
-                System.out.println("Already on valid path, continuing");
                 return;
             }
         }
@@ -449,8 +443,6 @@ public class SmartAI implements Steerable<Vector2> {
         if (node != null) {
             // centralizes clamping + flag‐setting
             setTarget(new Vector2(node.x, node.y), false);
-            System.out.println("AI choosing random target at: "
-                + targetPosition.x + ", " + targetPosition.y);
         }
     }
 
@@ -463,8 +455,6 @@ public class SmartAI implements Steerable<Vector2> {
         TiledNode node = mapGraph.getUnexploredNode(position);
         if (node != null) {
             setTarget(new Vector2(node.x, node.y), false);
-            System.out.println("AI exploring new area at: "
-                + targetPosition.x + ", " + targetPosition.y);
         } else {
             findRandomTarget(gameScreen);
         }
@@ -516,11 +506,22 @@ public class SmartAI implements Steerable<Vector2> {
      * Process hint information and update targeting
      */
     public void processHint(String hint, List<Landmark> landmarks) {
+        // Only process non-empty hints
+        if (hint == null || hint.isEmpty()) {
+            return;
+        }
+
+        System.out.println("SmartAI processing hint: " + hint);
+
         // Force immediate hint processing
-        if (databaseManager != null && !hint.isEmpty()) {
+        if (databaseManager != null) {
             databaseManager.forceHintProcessing(hint, landmarks);
+
+            // We need to ensure the AI is in SEEKING state when a hint is processed
+            this.currentState = AIState.SEEKING;
         }
     }
+
 
     /**
      * Gets the current target position (for debugging)

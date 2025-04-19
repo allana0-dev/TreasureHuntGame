@@ -24,6 +24,64 @@ public class TrainingDataDAO {
             System.out.println("Database initialized: treasure_collections table created (if not exists).");
         }
     }
+    /**
+     * Gets collection data for treasures near a specific landmark location
+     *
+     * @param mapName The map name to filter by
+     * @param landmarkX The x-coordinate of the landmark
+     * @param landmarkY The y-coordinate of the landmark
+     * @param radius The search radius around the landmark
+     * @return List of treasure collection data points within the radius
+     */
+    public static List<TreasureCollectionData> getCollectionsNearLandmark(
+        String mapName, float landmarkX, float landmarkY, float radius) throws SQLException {
+
+        // Calculate the bounding box for an initial rough filter (more efficient in SQL)
+        float minX = landmarkX - radius;
+        float maxX = landmarkX + radius;
+        float minY = landmarkY - radius;
+        float maxY = landmarkY + radius;
+
+        String sqlSelect = "SELECT round_number, map_name, treasure_x, treasure_y, " +
+            "collector_x, collector_y, collected_by_player, timestamp " +
+            "FROM treasure_collections " +
+            "WHERE map_name = ? " +
+            "AND treasure_x BETWEEN ? AND ? " +
+            "AND treasure_y BETWEEN ? AND ?";
+
+        List<TreasureCollectionData> collections = new ArrayList<>();
+
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement stmt = conn.prepareStatement(sqlSelect)) {
+
+            stmt.setString(1, mapName);
+            stmt.setFloat(2, minX);
+            stmt.setFloat(3, maxX);
+            stmt.setFloat(4, minY);
+            stmt.setFloat(5, maxY);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    int roundNumber = rs.getInt("round_number");
+                    String map = rs.getString("map_name");
+                    Vector2 treasurePos = new Vector2(rs.getFloat("treasure_x"), rs.getFloat("treasure_y"));
+                    Vector2 collectorPos = new Vector2(rs.getFloat("collector_x"), rs.getFloat("collector_y"));
+                    boolean byPlayer = rs.getBoolean("collected_by_player");
+
+                    // Now do an exact radius check
+                    float distToLandmark = Vector2.dst(treasurePos.x, treasurePos.y, landmarkX, landmarkY);
+
+                    if (distToLandmark <= radius) {
+                        TreasureCollectionData data = new TreasureCollectionData(
+                            roundNumber, map, treasurePos, collectorPos, byPlayer);
+                        collections.add(data);
+                    }
+                }
+            }
+        }
+
+        return collections;
+    }
 
     public static void saveTreasureCollection(TreasureCollectionData data) throws SQLException {
         String sqlInsert = "INSERT INTO treasure_collections(" +

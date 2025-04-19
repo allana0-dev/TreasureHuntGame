@@ -103,8 +103,6 @@ public class HistoricalAIData {
 
             Collections.shuffle(treasureHotspots, random);
 
-            System.out.println("Selected " + treasureHotspots.size() +
-                " distributed treasure hotspots on " + currentMapName);
 
         } catch (SQLException e) {
             System.err.println("Error loading treasure hotspots from database: " + e.getMessage());
@@ -272,29 +270,24 @@ public class HistoricalAIData {
         treasureHotspots.addAll(selectedHotspots);
     }
 
+
     /**
      * Updates the AI target based on hints and historical data
      */
     public boolean updateAITarget(float delta, String currentHint, List<Landmark> landmarks) {
-        // 1) If we’re in “hint mode”, *always* keep the hint target alive
+        // Priority 1: If we're in "hint mode", always keep the hint target alive
         if (isFollowingHint && hintLandmarkPosition != null) {
-            updateHintFollowing(delta);    // maybe randomize local search once you arrive
-            return true;                   // <— skip ALL fallback logic
-        } else {
-            // no hint, clear old hint state
-            isFollowingHint = false;
-            hintLandmarkPosition = null;
+            return updateHintFollowing(delta);
         }
 
-        // force hint every time it changes
+        // Priority 2: Process new hints
         if (!currentHint.isEmpty() && !hasProcessedHint) {
             processHint(currentHint, landmarks);
             hasProcessedHint = true;
             return true;
         }
 
-
-        // 3) ONLY now do your DB or roaming fallback
+        // Priority 3: Use database or roaming as fallback
         if (random.nextFloat() < DATABASE_LOCATION_WEIGHT && !treasureHotspots.isEmpty()) {
             return setDatabaseTarget();
         } else {
@@ -307,19 +300,26 @@ public class HistoricalAIData {
      * Forces immediate hint processing
      */
     public void forceHintProcessing(String hint, List<Landmark> landmarks) {
-        // Reset states to ensure hint is processed
+        // Reset all exploration/roaming states
         isRoaming = false;
         roamingTimer = 0f;
         hasProcessedHint = false;
-        isFollowingHint = false;
-        hintLandmarkPosition = null;
 
-        // Try to process the hint
+        // Reset hint following state to start fresh
+        isFollowingHint = false;
+        hintFollowTimer = 0f;
+        hintLandmarkPosition = null;
+        hintSearchRadius = 50f;
+        lastHintSearchTime = 0f;
+
+        // Process the hint to find a matching landmark
         boolean hintProcessed = processHint(hint, landmarks);
 
         if (hintProcessed) {
             hasProcessedHint = true;
-            System.out.println("AI following hint (forced): " + hint);
+            isFollowingHint = true; // Make sure this is set to true
+            hintFollowTimer = 0f;   // Start the timer fresh
+            System.out.println("AI following hint: " + hint);
         } else {
             System.out.println("Failed to process hint: " + hint);
             // Fall back to a database target
@@ -377,7 +377,6 @@ public class HistoricalAIData {
         // Check if all hotspots have been visited
         if (visitedHotspots.size() >= treasureHotspots.size()) {
             visitedHotspots.clear();
-            System.out.println("All database hotspots visited, resetting visited status");
         }
 
         // Find the best hotspot target
@@ -420,12 +419,8 @@ public class HistoricalAIData {
         if (bestTarget != null) {
             // Target this hotspot
             smartAI.setTarget(new Vector2(bestTarget), true);
-            System.out.println("  → DB forced target at: " + bestTarget +
-                " | hasTarget=" + smartAI.hasTarget);
-
             lastDatabaseTarget = new Vector2(bestTarget);
             visitedHotspots.add(new Vector2(bestTarget));
-            System.out.println("AI targeting database hotspot at: " + bestTarget.x + ", " + bestTarget.y);
             return true;
         }
 
@@ -445,7 +440,6 @@ public class HistoricalAIData {
         if (bestTarget != null) {
             smartAI.setTarget(new Vector2(bestTarget), true);
             lastDatabaseTarget = new Vector2(bestTarget);
-            System.out.println("AI targeting random database hotspot at: " + bestTarget.x + ", " + bestTarget.y);
             return true;
         }
 
@@ -468,7 +462,6 @@ public class HistoricalAIData {
         currentRoamingDuration = MIN_ROAMING_DURATION +
             random.nextFloat() * (MAX_ROAMING_DURATION - MIN_ROAMING_DURATION);
         smartAI.setExplorationMode(true);
-        System.out.println("AI entering roaming mode for " + currentRoamingDuration + " seconds");
     }
 
     /**
@@ -522,7 +515,6 @@ public class HistoricalAIData {
         // If it's a new hotspot, add it
         if (isNewHotspot && treasureHotspots.size() < MAX_CACHED_LOCATIONS) {
             treasureHotspots.add(new Vector2(treasurePosition));
-            System.out.println("New treasure hotspot added at: " + treasurePosition.x + ", " + treasurePosition.y);
         }
 
         // Reset to exploration mode
@@ -540,11 +532,89 @@ public class HistoricalAIData {
         hintFollowTimer += delta;
         lastHintSearchTime += delta;
 
-        // If we've been following too long, give up
+        // Get the AI's current position
+        Vector2 currentPosition = smartAI.getPosition();
+        float distToLandmark = currentPosition.dst(hintLandmarkPosition);
+
+        // First phase: Get to the landmark location
+        if (distToLandmark > 30f) {
+            // We're still moving toward the landmark, make sure we have a target
+            if (!smartAI.hasTarget || smartAI.getTargetPosition() == null ||
+                smartAI.getTargetPosition().dst(hintLandmarkPosition) > 10f) {
+                smartAI.setTarget(new Vector2(hintLandmarkPosition), true);
+            }
+            return true;
+        }
+
+        // Second phase: Explore the area around the landmark
+
+        // First try to target any database hotspots that are within our search radius
+        if (lastHintSearchTime > 1.0f) {
+            // Find the closest hotspot within our search radius
+            Vector2 closestHotspot = null;
+            float closestDist = Float.MAX_VALUE;
+
+            for (Vector2 hotspot : treasureHotspots) {
+                float distToHotspot = hotspot.dst(hintLandmarkPosition);
+                // Only consider hotspots within our current search radius
+                if (distToHotspot <= hintSearchRadius) {
+                    // Check if we've already visited this hotspot
+                    boolean alreadyVisited = false;
+                    for (Vector2 visited : visitedHotspots) {
+                        if (hotspot.dst(visited) < 20f) {
+                            alreadyVisited = true;
+                            break;
+                        }
+                    }
+
+                    if (!alreadyVisited && distToHotspot < closestDist) {
+                        closestDist = distToHotspot;
+                        closestHotspot = hotspot;
+                    }
+                }
+            }
+
+            // If we found a valid hotspot, target it
+            if (closestHotspot != null) {
+                smartAI.setTarget(new Vector2(closestHotspot), true);
+                visitedHotspots.add(new Vector2(closestHotspot));
+                lastHintSearchTime = 0f;
+                return true;
+            }
+        }
+
+        // Update search radius (expand search area gradually)
+        hintSearchRadius += hintSearchExpansionRate * delta;
+        if (hintSearchRadius > maxHintSearchRadius) {
+            hintSearchRadius = maxHintSearchRadius;
+        }
+
+        // If no valid hotspots or timer expired, pick random exploration targets
+        if (lastHintSearchTime > 2.0f) {
+            lastHintSearchTime = 0f;
+
+            // Choose a random direction and distance from landmark
+            float angle = random.nextFloat() * MathUtils.PI2;
+            // Use sqrt for better distribution (more exploration toward the edges)
+            float distance = hintSearchRadius * (float)Math.sqrt(random.nextFloat());
+
+            // Calculate the new target position
+            Vector2 targetOffset = new Vector2(
+                MathUtils.cos(angle) * distance,
+                MathUtils.sin(angle) * distance
+            );
+            Vector2 newTarget = new Vector2(hintLandmarkPosition).add(targetOffset);
+
+            // Set the new target
+            smartAI.setTarget(newTarget, true);
+        }
+
+        // If we've been exploring too long without finding anything, give up
         if (hintFollowTimer >= hintFollowDuration) {
+            System.out.println("Hint follow duration expired, returning to normal targeting");
             isFollowingHint = false;
             hintLandmarkPosition = null;
-            System.out.println("Hint follow duration expired, returning to normal targeting");
+            visitedHotspots.clear(); // Clear visited hotspots when we stop following the hint
 
             // Check nearby hotspots as a fallback
             if (random.nextFloat() < 0.7f && !treasureHotspots.isEmpty()) {
@@ -555,51 +625,7 @@ public class HistoricalAIData {
             }
         }
 
-        // Get the AI's current position
-        Vector2 currentPosition = smartAI.getPosition();
-        float distToLandmark = currentPosition.dst(hintLandmarkPosition);
-
-        // If we're at the landmark center, start expanding search
-        if (distToLandmark < 30f) {
-            // Update search radius (expand search area)
-            hintSearchRadius += hintSearchExpansionRate * delta;
-            if (hintSearchRadius > maxHintSearchRadius) {
-                hintSearchRadius = maxHintSearchRadius;
-            }
-
-            // Every 3 seconds, pick a new target point
-            if (lastHintSearchTime > 3.0f) {
-                lastHintSearchTime = 0f;
-
-                // Choose a random direction and distance
-                float angle = random.nextFloat() * MathUtils.PI2;
-                float distance = random.nextFloat() * hintSearchRadius;
-
-                // Calculate the new target position
-                Vector2 targetOffset = new Vector2(
-                    MathUtils.cos(angle) * distance,
-                    MathUtils.sin(angle) * distance
-                );
-                Vector2 newTarget = new Vector2(hintLandmarkPosition).add(targetOffset);
-
-                // Set the new target
-                smartAI.setTarget(newTarget, true);
-                System.out.println("Exploring near hint landmark, radius: " + hintSearchRadius);
-
-                // Occasionally check for hotspots too
-                if (random.nextFloat() < 0.1f) {
-                    boolean foundHotspot = checkForNearbyHotspots(hintLandmarkPosition);
-                    if (foundHotspot) {
-                        System.out.println("Found hotspot near hint landmark");
-                        return true;
-                    }
-                }
-
-                return true;
-            }
-        }
-
-        return false;
+        return true;
     }
 
     /**
