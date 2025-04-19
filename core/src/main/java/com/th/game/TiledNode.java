@@ -7,14 +7,9 @@ import com.badlogic.gdx.ai.pfa.Heuristic;
  * Represents a walkable position on the tile map.
  */
 public class TiledNode {
-    // Unique index for the node in the graph
     public final int index;
-
-    // World coordinates (pixel position)
     public final float x;
     public final float y;
-
-    // Grid coordinates (tile position)
     public final int gridX;
     public final int gridY;
 

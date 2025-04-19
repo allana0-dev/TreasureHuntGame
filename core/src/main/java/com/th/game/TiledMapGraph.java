@@ -10,64 +10,56 @@ import com.badlogic.gdx.utils.ObjectMap;
 import java.util.Random;
 
 /**
- * A graph implementation for LibGDX A* pathfinding on TiledMaps.
- * Creates a navigable graph from walkable tiles.
+ * An {@link IndexedGraph} implementation for A* pathfinding on a TiledMap.
+ * Nodes are created for walkable tiles and connected to adjacent walkable neighbors.
  */
 public class TiledMapGraph implements IndexedGraph<TiledNode> {
-    private GameScreen gameScreen;
-    private TiledMap tiledMap;
-    private int mapWidth;
-    private int mapHeight;
-    private int tileWidth;
-    private int tileHeight;
 
-    // Node storage
-    private Array<TiledNode> nodes;
-    private Array<TiledNode> walkableNodes;
-    private TiledNode[][] nodeMap; // Provides quick lookup by x,y
-    private ObjectMap<TiledNode, Array<Connection<TiledNode>>> connectionMap;
+    private final GameScreen gameScreen;
+    private final int mapWidth;
+    private final int mapHeight;
+    private final int tileWidth;
+    private final int tileHeight;
 
-    // Tracks visited nodes for efficient unexplored area finding
-    private boolean[][] visitedTiles;
-    private Random random = new Random();
+    private final Array<TiledNode> nodes;
+    private final Array<TiledNode> walkableNodes;
+    private final TiledNode[][] nodeMap;
+    private final ObjectMap<TiledNode, Array<Connection<TiledNode>>> connectionMap;
+    private final boolean[][] visitedTiles;
+    private final Random random = new Random();
 
     /**
-     * Creates a new graph for the specified map
+     * Constructs a graph for the given TiledMap and game screen.
+     *
+     * @param gameScreen the GameScreen used for walkability checks
+     * @param tiledMap   the TiledMap to build the graph from
      */
     public TiledMapGraph(GameScreen gameScreen, TiledMap tiledMap) {
         this.gameScreen = gameScreen;
-        this.tiledMap = tiledMap;
+        this.mapWidth = tiledMap.getProperties().get("width", Integer.class);
+        this.mapHeight = tiledMap.getProperties().get("height", Integer.class);
+        this.tileWidth = tiledMap.getProperties().get("tilewidth", Integer.class);
+        this.tileHeight = tiledMap.getProperties().get("tileheight", Integer.class);
 
-        // Get map dimensions
-        mapWidth = tiledMap.getProperties().get("width", Integer.class);
-        mapHeight = tiledMap.getProperties().get("height", Integer.class);
-        tileWidth = tiledMap.getProperties().get("tilewidth", Integer.class);
-        tileHeight = tiledMap.getProperties().get("tileheight", Integer.class);
-
-        nodes = new Array<>();
-        walkableNodes = new Array<>();
-        nodeMap = new TiledNode[mapWidth][mapHeight];
-        connectionMap = new ObjectMap<>();
-        visitedTiles = new boolean[mapWidth][mapHeight];
+        this.nodes = new Array<>();
+        this.walkableNodes = new Array<>();
+        this.nodeMap = new TiledNode[mapWidth][mapHeight];
+        this.connectionMap = new ObjectMap<>();
+        this.visitedTiles = new boolean[mapWidth][mapHeight];
     }
 
     /**
-     * Builds the navigation graph from the tilemap
+     * Builds nodes for each walkable tile and connects them to adjacent walkable neighbors.
      */
     public void buildGraph() {
-        // Create nodes for each tile position
-        int nodeIndex = 0;
-
+        int index = 0;
         for (int y = 0; y < mapHeight; y++) {
             for (int x = 0; x < mapWidth; x++) {
-                // Convert tile position to pixel position (center of tile)
-                float pixelX = x * tileWidth + (tileWidth / 2);
-                float pixelY = y * tileHeight + (tileHeight / 2);
-
-                // Create node only if position is walkable
-                Vector2 pixelPos = new Vector2(pixelX, pixelY);
-                if (gameScreen.isWalkable(pixelPos)) {
-                    TiledNode node = new TiledNode(nodeIndex++, pixelX, pixelY, x, y);
+                float pixelX = x * tileWidth + tileWidth / 2f;
+                float pixelY = y * tileHeight + tileHeight / 2f;
+                Vector2 position = new Vector2(pixelX, pixelY);
+                if (gameScreen.isWalkable(position)) {
+                    TiledNode node = new TiledNode(index++, pixelX, pixelY, x, y);
                     nodeMap[x][y] = node;
                     nodes.add(node);
                     walkableNodes.add(node);
@@ -75,171 +67,128 @@ public class TiledMapGraph implements IndexedGraph<TiledNode> {
             }
         }
 
-        // Connect nodes to their walkable neighbors
         for (TiledNode node : nodes) {
-            // Create array to hold connections from this node
             Array<Connection<TiledNode>> connections = new Array<>();
-
-            // Get node's grid position
             int x = node.gridX;
             int y = node.gridY;
-
-            // Check 4 adjacent neighbors
-            checkAndAddConnection(connections, node, x+1, y); // Right
-            checkAndAddConnection(connections, node, x-1, y); // Left
-            checkAndAddConnection(connections, node, x, y+1); // Up
-            checkAndAddConnection(connections, node, x, y-1); // Down
-
-            // Optionally enable diagonal connections for smoother paths
-            checkAndAddConnection(connections, node, x+1, y+1); // Upper-right
-            checkAndAddConnection(connections, node, x-1, y+1); // Upper-left
-            checkAndAddConnection(connections, node, x+1, y-1); // Lower-right
-            checkAndAddConnection(connections, node, x-1, y-1); // Lower-left
-
-            // Store connections for this node
+            addConnection(connections, node, x + 1, y);
+            addConnection(connections, node, x - 1, y);
+            addConnection(connections, node, x, y + 1);
+            addConnection(connections, node, x, y - 1);
             connectionMap.put(node, connections);
         }
-
     }
 
     /**
-     * Helper method to check if a neighboring tile is walkable and add a connection if it is
+     * Adds a connection between two nodes if the target tile is walkable.
+     * Diagonal connections are not added.
+     *
+     * @param connections the list to add to
+     * @param from        the source node
+     * @param toX         grid x-coordinate of the target
+     * @param toY         grid y-coordinate of the target
      */
-    private void checkAndAddConnection(Array<Connection<TiledNode>> connections, TiledNode fromNode, int toX, int toY) {
-        // Check if the position is valid and has a node
-        if (toX >= 0 && toX < mapWidth && toY >= 0 && toY < mapHeight && nodeMap[toX][toY] != null) {
-            TiledNode toNode = nodeMap[toX][toY];
-
-            // Check if this is a cardinal direction (not diagonal)
-            boolean isCardinal = (fromNode.gridX == toX || fromNode.gridY == toY);
-
-            if (isCardinal) {
-                // Add connection with cost 1.0 for cardinal directions
-                connections.add(new DefaultConnection<>(fromNode, toNode));
-            }
-            // Don't add diagonal connections
+    private void addConnection(Array<Connection<TiledNode>> connections,
+                               TiledNode from, int toX, int toY) {
+        if (toX < 0 || toX >= mapWidth || toY < 0 || toY >= mapHeight) {
+            return;
         }
-    }    /**
-     * Returns all walkable nodes in the graph
-     * Used for debugging visualization
+        TiledNode to = nodeMap[toX][toY];
+        if (to == null) {
+            return;
+        }
+        boolean cardinal = (from.gridX == toX || from.gridY == toY);
+        if (cardinal) {
+            connections.add(new DefaultConnection<>(from, to));
+        }
+    }
+
+    /**
+     * Returns all walkable nodes in the graph.
+     *
+     * @return array of walkable nodes
      */
     public Array<TiledNode> getWalkableNodes() {
         return walkableNodes;
     }
+
     /**
-     * Gets the node at the specified world coordinates
+     * Retrieves the node at specified world coordinates.
+     *
+     * @param x world x-coordinate
+     * @param y world y-coordinate
+     * @return the corresponding TiledNode or null if none
      */
     public TiledNode getNodeAtWorldCoordinates(float x, float y) {
-        // Convert world coordinates to grid coordinates
-        int gridX = (int)(x / tileWidth);
-        int gridY = (int)(y / tileHeight);
-
-
-        // Ensure we're within bounds
-        if (gridX >= 0 && gridX < mapWidth && gridY >= 0 && gridY < mapHeight) {
-            TiledNode node = nodeMap[gridX][gridY];
-            return node;
+        int gridX = (int) (x / tileWidth);
+        int gridY = (int) (y / tileHeight);
+        if (gridX < 0 || gridX >= mapWidth || gridY < 0 || gridY >= mapHeight) {
+            return null;
         }
-        return null;
+        return nodeMap[gridX][gridY];
     }
+
     /**
-     * Gets a random walkable node from the graph
+     * Returns a random walkable node, excluding border tiles.
+     *
+     * @return a random TiledNode
      */
     public TiledNode getRandomWalkableNode() {
-        // Build a list of “safe” nodes, excluding the outermost tiles
-        Array<TiledNode> safeNodes = new Array<>();
+        Array<TiledNode> safe = new Array<>();
         for (TiledNode node : walkableNodes) {
             if (node.gridX > 0 && node.gridX < mapWidth - 1
                 && node.gridY > 0 && node.gridY < mapHeight - 1) {
-                safeNodes.add(node);
+                safe.add(node);
             }
         }
-        // If for some reason we filtered everything out, fall back to any node
-        if (safeNodes.size > 0) {
-            return safeNodes.get(random.nextInt(safeNodes.size));
-        } else {
-            return walkableNodes.get(random.nextInt(walkableNodes.size));
-        }
+        Array<TiledNode> pool = safe.size > 0 ? safe : walkableNodes;
+        return pool.get(random.nextInt(pool.size));
     }
 
-
     /**
-     * Marks a node as having been visited
+     * Marks a node as visited for unexplored-area tracking.
+     *
+     * @param node the node to mark
      */
     public void markNodeVisited(TiledNode node) {
         if (node != null) {
             visitedTiles[node.gridX][node.gridY] = true;
         }
     }
-    // Inside TiledMapGraph.java
-
-    /** Number of tiles horizontally in the map. */
-    public int getWidth() {
-        return mapWidth;
-    }
-
-    /** Number of tiles vertically in the map. */
-    public int getHeight() {
-        return mapHeight;
-    }
-
-    /** Width of one tile in pixels. */
-    public int getTileWidth() {
-        return tileWidth;
-    }
-
-    /** Height of one tile in pixels. */
-    public int getTileHeight() {
-        return tileHeight;
-    }
-
 
     /**
-     * Finds a node in an unexplored area of the map
+     * Finds an unexplored node, preferring those farthest from current.
+     * Resets visited status if most nodes are explored.
+     *
+     * @param currentPosition current world position
+     * @return an unexplored TiledNode
      */
     public TiledNode getUnexploredNode(Vector2 currentPosition) {
-        // Mark current node as visited
-        TiledNode currentNode = getNodeAtWorldCoordinates(currentPosition.x, currentPosition.y);
-        if (currentNode != null) {
-            markNodeVisited(currentNode);
-        }
+        TiledNode current = getNodeAtWorldCoordinates(currentPosition.x, currentPosition.y);
+        markNodeVisited(current);
 
-        // Get all unexplored walkable nodes
-        Array<TiledNode> unexploredNodes = new Array<>();
+        Array<TiledNode> unexplored = new Array<>();
         for (TiledNode node : walkableNodes) {
             if (!visitedTiles[node.gridX][node.gridY]
                 && node.gridX > 0 && node.gridX < mapWidth - 1
                 && node.gridY > 0 && node.gridY < mapHeight - 1) {
-                unexploredNodes.add(node);
+                unexplored.add(node);
             }
         }
-
-        // If we've explored most of the map, reset the visited status
-        if (unexploredNodes.size < walkableNodes.size * 0.2f) { // Less than 20% unexplored
+        if (unexplored.size < walkableNodes.size * 0.2f) {
             resetVisitedStatus();
-            return getRandomWalkableNode(); // Return a random node after reset
+            return getRandomWalkableNode();
         }
-
-        // Return a random unexplored node with preference for nodes further away
-        if (unexploredNodes.size > 0) {
-            // Sort unexplored nodes by distance from current position (descending)
-            unexploredNodes.sort((n1, n2) -> {
-                float dist1 = Vector2.dst(currentPosition.x, currentPosition.y, n1.x, n1.y);
-                float dist2 = Vector2.dst(currentPosition.x, currentPosition.y, n2.x, n2.y);
-                return Float.compare(dist2, dist1); // Sort in descending order (furthest first)
-            });
-
-            // Pick from the first third of the list (furthest nodes)
-            int maxIndex = Math.max(1, unexploredNodes.size / 3);
-            return unexploredNodes.get(random.nextInt(maxIndex));
-        }
-
-        // Fallback to random node
-        return getRandomWalkableNode();
+        unexplored.sort((a, b) -> Float.compare(
+            Vector2.dst(currentPosition.x, currentPosition.y, b.x, b.y),
+            Vector2.dst(currentPosition.x, currentPosition.y, a.x, a.y)
+        ));
+        int pick = Math.max(1, unexplored.size / 3);
+        return unexplored.get(random.nextInt(pick));
     }
 
     /**
-     * Resets the visited status of all nodes
+     * Resets visitation status for all nodes.
      */
     public void resetVisitedStatus() {
         for (int x = 0; x < mapWidth; x++) {
@@ -247,25 +196,52 @@ public class TiledMapGraph implements IndexedGraph<TiledNode> {
                 visitedTiles[x][y] = false;
             }
         }
-
     }
 
     /**
-     * Returns the total number of nodes in the graph
+     * Returns the total number of nodes in the graph.
+     *
+     * @return node count
      */
     public int getNodeCount() {
         return nodes.size;
     }
 
-    // IndexedGraph interface implementation
     @Override
     public int getIndex(TiledNode node) {
         return node.index;
     }
 
-
     @Override
     public Array<Connection<TiledNode>> getConnections(TiledNode fromNode) {
         return connectionMap.get(fromNode);
+    }
+
+    /**
+     * @return number of tiles horizontally in the map
+     */
+    public int getWidth() {
+        return mapWidth;
+    }
+
+    /**
+     * @return number of tiles vertically in the map
+     */
+    public int getHeight() {
+        return mapHeight;
+    }
+
+    /**
+     * @return width of a single tile in pixels
+     */
+    public int getTileWidth() {
+        return tileWidth;
+    }
+
+    /**
+     * @return height of a single tile in pixels
+     */
+    public int getTileHeight() {
+        return tileHeight;
     }
 }
