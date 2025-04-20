@@ -1,50 +1,31 @@
 package com.th.game.screens;
 
-import com.badlogic.gdx.Gdx;
-import com.badlogic.gdx.Input;
-import com.badlogic.gdx.Screen;
-import com.badlogic.gdx.audio.Music;
-import com.badlogic.gdx.graphics.Pixmap;
-import com.badlogic.gdx.graphics.g2d.GlyphLayout;
-import com.badlogic.gdx.audio.Sound;
-import com.badlogic.gdx.graphics.Color;
-import com.badlogic.gdx.graphics.GL20;
-import com.badlogic.gdx.graphics.OrthographicCamera;
-import com.badlogic.gdx.graphics.Texture;
+// gdx core + audio + graphics + utils
+import com.badlogic.gdx.*;
+import com.badlogic.gdx.audio.*;
+import com.badlogic.gdx.graphics.*;
 import com.badlogic.gdx.graphics.g2d.*;
-import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
-import com.badlogic.gdx.maps.MapLayer;
-import com.badlogic.gdx.maps.MapObject;
-import com.badlogic.gdx.maps.MapObjects;
-import com.badlogic.gdx.maps.objects.PolygonMapObject;
-import com.badlogic.gdx.maps.objects.EllipseMapObject;
-import com.badlogic.gdx.maps.tiled.TiledMapTileLayer;
-import com.badlogic.gdx.math.Rectangle;
-import com.badlogic.gdx.math.Polygon;
-import com.badlogic.gdx.math.Ellipse;
-import com.badlogic.gdx.math.Vector2;
-import com.badlogic.gdx.maps.objects.RectangleMapObject;
-import com.badlogic.gdx.maps.tiled.TmxMapLoader;
-import com.badlogic.gdx.maps.tiled.TiledMap;
-import com.badlogic.gdx.maps.tiled.renderers.OrthogonalTiledMapRenderer;
-import com.badlogic.gdx.math.MathUtils;
-import com.badlogic.gdx.utils.Array;
-import com.th.game.*;
-import com.th.game.ai.SmartAI;
-import com.th.game.database.TrainingDataDAO;
-import com.th.game.database.TreasureCollectionData;
-import com.th.game.entities.Landmark;
-import com.th.game.util.map.MapManager;
-import com.th.game.entities.Player;
-import com.th.game.entities.TreasureChest;
-import com.th.game.util.Direction;
-import com.th.game.GameSettings;
-
+import com.badlogic.gdx.graphics.glutils.*;
+import com.badlogic.gdx.maps.*;
+import com.badlogic.gdx.maps.objects.*;
+import com.badlogic.gdx.maps.tiled.*;
+import com.badlogic.gdx.maps.tiled.renderers.*;
+import com.badlogic.gdx.math.*;
+import com.badlogic.gdx.utils.*;
+import java.util.*;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Random;
+
+
+// project packages
+import com.th.game.*;
+import com.th.game.ai.*;
+import com.th.game.database.*;
+import com.th.game.entities.*;
+import com.th.game.util.*;
+import com.th.game.util.map.MapManager;
+
+
+
 
 public class GameScreen implements Screen {
 
@@ -132,7 +113,7 @@ public class GameScreen implements Screen {
     ArrayList<TreasureChest> treasureChests;
 
     // Define an enum for spawn positions
-    private enum SpawnPosition {
+    public enum SpawnPosition {
         TOP_RIGHT,
         BOTTOM_RIGHT,
         BOTTOM_LEFT,
@@ -562,14 +543,14 @@ public class GameScreen implements Screen {
     @Override
     public void render(float delta) {
         // Update countdown timer only when in TIMER mode.
-        if (settings.gameMode == GameSettings.GameMode.TIMER) {
+        if (settings.gameMode == GameSettings.GameMode.TIMER && gameStarted) {
             countdownTimer -= delta;
             if (countdownTimer <= 0) {
                 countdownTimer = 0;
-                // Handle end of the round when time runs out.
                 endRound();
             }
         }
+
 
         // Update game logic (e.g., player movement, AI behavior, collision detection, etc.)
         update(delta);
