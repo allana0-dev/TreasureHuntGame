@@ -86,11 +86,13 @@ public class GameScreen implements Screen {
     private Sound hintSound;
     private final List<Vector2> spawnPoints;
 
+    // In the GameScreen class variables section, add or update these variables:
+    private final float COUNTDOWN_NUMBER_DURATION = 1.0f; // Each number shows for 1 second
+    private float countdownNumberTimer = 0f;
+    private boolean gameStarted = false;
 
 
 
-    // --- AI fields ---
-// at top of GameScreen
     private SmartAI ai;
     private Animation<TextureRegion> aiWalkDown;
     private Animation<TextureRegion> aiWalkLeft;
@@ -147,7 +149,7 @@ public class GameScreen implements Screen {
 
         showingRoundPopup = true;
         roundPopupTimer = 0f;
-
+        countdownActive = false;
         if (settings.gameMode == GameSettings.GameMode.TIMER) {
             resetTimer();
         }
@@ -163,23 +165,16 @@ public class GameScreen implements Screen {
         if (settings.mapType == GameSettings.MapType.RANDOM) {
             selectedMap = MapManager.getRandomMap();
             currentMapName = selectedMap.getName();
-            System.out.println("Randomly selected map: " + selectedMap.getName());
         } else {
-            // Need to set selectedMap for STORED maps too
             currentMapName = settings.selectedMapName != null ? settings.selectedMapName : "Map 1";
             selectedMap = MapManager.getMapByName(currentMapName);
-            System.out.println("Stored map selected: " + currentMapName);
         }
 
-// Check if map was found
         if (selectedMap == null) {
-            // Fallback to the first map if the requested map wasn't found
             selectedMap = MapManager.getRandomMap();
             currentMapName = selectedMap.getName();
-            System.out.println("WARNING: Requested map not found. Using fallback map: " + currentMapName);
         }
 
-// --- Load Tile Map ---
         tiledMap = new TmxMapLoader().load(selectedMap.getPath());
 
         loadAllLandmarksFromObjectGroups();
@@ -340,7 +335,6 @@ public class GameScreen implements Screen {
         ai = new SmartAI(aiSpawn.cpy(), currentMapName);
         ai.scanWalkableAreas(this, tiledMap);
 
-        System.out.println("Player spawned at: " + playerPosition + ", AI spawned at: " + aiPosition);
     }
 
     /**
@@ -497,7 +491,6 @@ public class GameScreen implements Screen {
             }
         }
 
-        System.out.println("Placed " + placedTreasures + " treasure chests scattered across the map");
     }
 
     // Helper method to check if a position is too close to existing treasures
@@ -540,18 +533,15 @@ public class GameScreen implements Screen {
         for (MapLayer layer : tiledMap.getLayers()) {
             MapObjects objects = layer.getObjects();
             if (objects.getCount() > 0) {  // or objects.size if available
-                System.out.println("Loading landmarks from layer: " + layer.getName());
                 for (MapObject object : objects) {
                     float x = Float.parseFloat(object.getProperties().get("x").toString());
                     float y = Float.parseFloat(object.getProperties().get("y").toString());
                     String name = object.getName();
                     float radius = 100f; // You can adjust or calculate the radius accordingly
                     landmarks.add(new Landmark(name, new Vector2(x, y), radius));
-                    System.out.println("Loaded landmark: " + name + " at (" + x + ", " + y + ")");
                 }
             }
         }
-        System.out.println("Total landmarks loaded: " + landmarks.size());
     }
 
 
@@ -598,8 +588,6 @@ public class GameScreen implements Screen {
             }
         }
 
-
-
         // --- Render the Player ---
         batch.setColor(Color.WHITE);
         TextureRegion playerFrame;
@@ -620,12 +608,12 @@ public class GameScreen implements Screen {
         }
         batch.draw(playerFrame, player.position.x, player.position.y, 40, 50);
 
-// Draw "YOU" label above player
+        // Draw "YOU" label above player
         font.setColor(Color.GREEN);
         font.draw(batch, "YOU", player.position.x + 10, player.position.y + 70);
         font.setColor(Color.WHITE);
 
-// --- Render the AI with a label above ---
+        // --- Render the AI with a label above ---
         TextureRegion aiFrame;
         switch (aiDirection) {
             case LEFT:
@@ -644,69 +632,69 @@ public class GameScreen implements Screen {
         }
         batch.draw(aiFrame, ai.position.x, ai.position.y, 64, 64);
 
-// Draw "AI" label above the AI
+        // Draw "AI" label above the AI
         font.setColor(Color.RED);
         font.draw(batch, "AI", ai.position.x + 25, ai.position.y + 80);
         font.setColor(Color.WHITE);
-        // Update pulse effect
+
+        // Update pulse effect for speed boost
         if (showingAISpeedBoost) {
             speedBoostEffectTimer += delta;
-        if (pulseDirectionUp) {
-            pulseAlpha += delta * 1.5f;
-            if (pulseAlpha >= 0.8f) {
-                pulseAlpha = 0.8f;
-                pulseDirectionUp = false;
+            if (pulseDirectionUp) {
+                pulseAlpha += delta * 1.5f;
+                if (pulseAlpha >= 0.8f) {
+                    pulseAlpha = 0.8f;
+                    pulseDirectionUp = false;
+                }
+            } else {
+                pulseAlpha -= delta * 1.5f;
+                if (pulseAlpha <= 0.4f) {
+                    pulseAlpha = 0.4f;
+                    pulseDirectionUp = true;
+                }
             }
-        } else {
-            pulseAlpha -= delta * 1.5f;
-            if (pulseAlpha <= 0.4f) {
-                pulseAlpha = 0.4f;
-                pulseDirectionUp = true;
+
+            // End effect after duration
+            if (speedBoostEffectTimer >= SPEED_BOOST_EFFECT_DURATION) {
+                showingAISpeedBoost = false;
+            } else {
+                // Calculate fade out near the end
+                float alpha = 1.0f;
+                if (speedBoostEffectTimer > SPEED_BOOST_EFFECT_DURATION - 0.5f) {
+                    alpha = (SPEED_BOOST_EFFECT_DURATION - speedBoostEffectTimer) / 0.5f;
+                }
+
+                // Save the batch color
+                Color prevColor = batch.getColor().cpy();
+
+                // Draw the glow effect
+                Color effectColor = new Color(SPEED_BOOST_COLOR);
+                effectColor.a = pulseAlpha * alpha;
+                batch.setColor(effectColor);
+
+                // Draw outer glow (larger circle)
+                float glowSize = 90f;
+                batch.draw(
+                    getSpeedBoostTexture(),
+                    ai.position.x + 32 - glowSize/2,
+                    ai.position.y + 32 - glowSize/2,
+                    glowSize, glowSize
+                );
+
+                // Draw speed boost text
+                font.setColor(1f, 0.8f, 0.2f, alpha); // Golden yellow text
+                GlyphLayout layout = new GlyphLayout(font, "SPEED BOOST!");
+                font.draw(batch, "SPEED BOOST!",
+                    ai.position.x + 32 - layout.width/2,
+                    ai.position.y + 95);
+
+                // Restore previous color
+                batch.setColor(prevColor);
+                font.setColor(Color.WHITE);
             }
         }
 
-        // End effect after duration
-        if (speedBoostEffectTimer >= SPEED_BOOST_EFFECT_DURATION) {
-            showingAISpeedBoost = false;
-        } else {
-            // Calculate fade out near the end
-            float alpha = 1.0f;
-            if (speedBoostEffectTimer > SPEED_BOOST_EFFECT_DURATION - 0.5f) {
-                alpha = (SPEED_BOOST_EFFECT_DURATION - speedBoostEffectTimer) / 0.5f;
-            }
-
-            // Save the batch color
-            Color prevColor = batch.getColor().cpy();
-
-            // Draw the glow effect
-            Color effectColor = new Color(SPEED_BOOST_COLOR);
-            effectColor.a = pulseAlpha * alpha;
-            batch.setColor(effectColor);
-
-            // Draw outer glow (larger circle)
-            float glowSize = 90f;
-            batch.draw(
-                getSpeedBoostTexture(),
-                ai.position.x + 32 - glowSize/2,
-                ai.position.y + 32 - glowSize/2,
-                glowSize, glowSize
-            );
-
-            // Draw speed boost text
-            font.setColor(1f, 0.8f, 0.2f, alpha); // Golden yellow text
-            GlyphLayout layout = new GlyphLayout(font, "SPEED BOOST!");
-            font.draw(batch, "SPEED BOOST!",
-                ai.position.x + 32 - layout.width/2,
-                ai.position.y + 95);
-
-            // Restore previous color
-            batch.setColor(prevColor);
-            font.setColor(Color.WHITE);
-        }
-    }
-
-
-    // --- Draw Heads Up Display (HUD) ---
+        // --- Draw Heads Up Display (HUD) ---
         font.draw(batch, "Player Score: " + player.score, camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 20);
         font.draw(batch, "AI Score: " + ai.score, camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 40);
 
@@ -719,6 +707,10 @@ public class GameScreen implements Screen {
             roundPopupTimer += delta;
             if (roundPopupTimer >= ROUND_POPUP_DURATION) {
                 showingRoundPopup = false;
+                // Start the countdown as soon as the round popup is done
+                countdownActive = true;
+                countdownNumberTimer = 0f;
+                currentCountdownNumber = 3;
             }
 
             // Calculate fade effect for smooth appearance/disappearance
@@ -762,11 +754,80 @@ public class GameScreen implements Screen {
             // Draw round announcement text
             largeFont.setColor(1, 1, 1, alpha); // White text with fade effect
             String roundText = "ROUND " + currentRound;
-            float textWidth = largeFont.draw(batch, roundText, 0, 0).width; // Measure text width
+            float textWidth = new GlyphLayout(largeFont, roundText).width; // Measure text width
 
             largeFont.draw(batch, roundText,
                 camera.position.x - textWidth / 2, // Center text horizontally
                 camera.position.y + 10  // Slight offset from center for better appearance
+            );
+
+            // Reset font color
+            largeFont.setColor(prevColor);
+        }
+
+        // Draw countdown when active (place this after the round popup code)
+        if (countdownActive) {
+            // Update the countdown timer
+            countdownNumberTimer += delta;
+            if (countdownNumberTimer >= COUNTDOWN_NUMBER_DURATION) {
+                // Move to next number or finish countdown
+                countdownNumberTimer = 0f;
+                currentCountdownNumber--;
+
+                if (currentCountdownNumber < 0) {
+                    // Countdown finished
+                    countdownActive = false;
+                    gameStarted = true;
+                }
+            }
+
+            // Calculate fade effect for smooth appearance/disappearance
+            float alpha = 1.0f;
+            if (countdownNumberTimer < 0.2f) {
+                // Fade in
+                alpha = countdownNumberTimer / 0.2f;
+            } else if (countdownNumberTimer > COUNTDOWN_NUMBER_DURATION - 0.2f) {
+                // Fade out
+                alpha = (COUNTDOWN_NUMBER_DURATION - countdownNumberTimer) / 0.2f;
+            }
+
+            // Save current color
+            Color prevColor = largeFont.getColor();
+
+            // Draw semi-transparent black background for popup
+            batch.end(); // End the sprite batch to switch to shape renderer
+
+            Gdx.gl.glEnable(GL20.GL_BLEND);
+            Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+
+            shapeRenderer.setProjectionMatrix(camera.combined);
+            shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+            shapeRenderer.setColor(0, 0, 0, 0.7f * alpha);
+
+            // Draw background rectangle centered on screen instead of circle
+            float boxWidth = 150;
+            float boxHeight = 150;
+            shapeRenderer.rect(
+                camera.position.x - boxWidth/2,
+                camera.position.y - boxHeight/2,
+                boxWidth, boxHeight
+            );
+
+            shapeRenderer.end();
+            Gdx.gl.glDisable(GL20.GL_BLEND);
+
+            // Start the sprite batch again to draw text
+            batch.begin();
+
+            // Draw countdown text
+            largeFont.setColor(1, 1, 0, alpha); // Yellow text with fade effect
+            String countdownText = currentCountdownNumber > 0 ?
+                String.valueOf(currentCountdownNumber) : "GO!";
+
+            GlyphLayout layout = new GlyphLayout(largeFont, countdownText);
+            largeFont.draw(batch, countdownText,
+                camera.position.x - layout.width / 2, // Center text horizontally
+                camera.position.y + layout.height / 2  // Center text vertically
             );
 
             // Reset font color
@@ -787,9 +848,6 @@ public class GameScreen implements Screen {
             font.draw(batch, currentHint, camera.position.x - 200, camera.position.y + (camera.viewportHeight / 2f) - 20);
             font.setColor(prevColor);
         }
-
-
-
 
         if (settings.gameMode == GameSettings.GameMode.TIMER) {
             int timeLeft = (int) countdownTimer;
@@ -852,68 +910,48 @@ public class GameScreen implements Screen {
      * Replace your existing update method with this one
      */
     private void update(float delta) {
-        // Update animation times
-        playerStateTime += delta;
-        aiStateTime += delta;
 
-        // Handle player input
-        handlePlayerInput(delta);
 
-        // Keep the hint display timing logic
-        if (hintVisible) {
-            currentHintDisplayTimer += delta;
-            if (currentHintDisplayTimer >= hintDisplayDuration) {
-                // Hide the hint after display duration
-                hintVisible = false;
-            }
-        }
+        // Only allow player input and AI movement if countdown is not active
+        if (!countdownActive) {
+            // Update animation times
+            playerStateTime += delta;
+            aiStateTime += delta;
+            // Handle player input
+            handlePlayerInput(delta);
 
-        // Keep the hint cooldown logic
-        if (!hintAvailable) {
-            hintCooldown -= delta;
-            if (hintCooldown <= 0) {
-                hintAvailable = true;
-                hintCooldown = 0;
-            }
-        }
+            // Update AI
+            updateAI(delta);
 
-        // Update AI
-        updateAI(delta);
-
-        // Update treasure states
-        for (TreasureChest chest : treasureChests) {
-            chest.update(delta);
-        }
-
-        // Update the camera and check round conditions
-        updateCamera();
-        checkRoundEnd();
-    }
-    /**
-     * Add a method to the render method to enable path visualization (for debugging)
-     * Call this at the end of your render method if you want to see the AI's path
-     */
-    private void renderDebugInfo() {
-        // Only enable this during development/debugging
-        boolean debugMode = false;
-
-        if (debugMode) {
-            // Draw the AI's path
-            drawPathVisualization();
-
-            // Draw AI target if it has one
-            if (ai instanceof SmartAI) {
-                SmartAI smartAI = (SmartAI) ai;
-                Vector2 target = smartAI.getTargetPosition();
-
-                if (target != null) {
-                    shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
-                    shapeRenderer.setColor(1, 0, 1, 0.7f); // Purple for target
-                    shapeRenderer.circle(target.x, target.y, 10);
-                    shapeRenderer.end();
+            // Keep the hint display timing logic
+            if (hintVisible) {
+                currentHintDisplayTimer += delta;
+                if (currentHintDisplayTimer >= hintDisplayDuration) {
+                    // Hide the hint after display duration
+                    hintVisible = false;
                 }
             }
+
+            // Keep the hint cooldown logic
+            if (!hintAvailable) {
+                hintCooldown -= delta;
+                if (hintCooldown <= 0) {
+                    hintAvailable = true;
+                    hintCooldown = 0;
+                }
+            }
+
+
+            // Update treasure states
+            for (TreasureChest chest : treasureChests) {
+                chest.update(delta);
+            }
+
+            // Update the camera and check round conditions
+            updateCamera();
+            checkRoundEnd();
         }
+
     }
 
     private String generateGlobalHint() {
@@ -926,7 +964,6 @@ public class GameScreen implements Screen {
                 }
             }
         }
-        // Fallback message if no treasure is near a landmark.
         return "Explore the area for hidden treasures!";
     }
 
@@ -1005,7 +1042,6 @@ public class GameScreen implements Screen {
                     while (iter.hasNext()) {
                         Landmark lm = iter.next();
                         if (chest.position.dst(lm.position) < lm.radius) {
-                            System.out.println("Removing landmark hint: " + lm.name + " (collected by player)");
                             iter.remove();
                             break;
                         }
@@ -1025,11 +1061,8 @@ public class GameScreen implements Screen {
                 hintAvailable = false;
                 hintCooldown = HINT_COOLDOWN_DURATION;
 
-                // Forward the hint to the AI for processing - the AI should handle everything internally
-                System.out.println("Player pressed H - sending hint to AI: " + currentHint);
                 ai.processHint(currentHint, landmarks);
 
-                // Don't manually set AI target here - let the AI's hint processing handle it
             }
         }
     }
@@ -1040,7 +1073,9 @@ public class GameScreen implements Screen {
      * Replace your existing updateAI method with this one
      */
     private void updateAI(float delta) {
-
+        if (countdownActive || showingRoundPopup) {
+            return; // Skip AI updates entirely during countdown
+        }
         ai.update(delta, this);
 
         // Set animation direction based on AI's current direction
@@ -1108,13 +1143,8 @@ public class GameScreen implements Screen {
         settings.aiRoundScores.add(Integer.valueOf(ai.score));
         if (ai.score > player.score) {
             settings.aiRoundsWon++;
-            System.out.println("Round " + currentRound + " ended. AI wins! AI Score: " + ai.score + ", Player Score: " + player.score);
         } else if (player.score > ai.score) {
             settings.playerRoundsWon++;
-            System.out.println("Round " + currentRound + " ended. Player wins! Player Score: " + player.score + ", AI Score: " + ai.score);
-        } else {
-            // In case of a tie, you could decide what to do (award both, award neither, etc.)
-            System.out.println("Round " + currentRound + " ended in a tie! Player Score: " + player.score + ", AI Score: " + ai.score);
         }
         // ---------- Save a Training Sample ----------
         // Find the nearest treasure chest for training context using the player's position.
@@ -1196,6 +1226,9 @@ public class GameScreen implements Screen {
         currentHintDisplayTimer = 0f;
         hintAvailable = true;
         hintCooldown = 0f;
+        showingRoundPopup = true;
+        roundPopupTimer = 0f;
+        countdownActive = false; // Change to false - we'll start countdown after round popup
 
         createSpawnPositions();
 
