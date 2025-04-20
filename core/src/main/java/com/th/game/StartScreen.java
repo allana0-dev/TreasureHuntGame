@@ -201,13 +201,16 @@ public class StartScreen implements Screen {
         contentTable.pad(20);
         contentTable.defaults().space(10);
 
-        Label instructionsLabel = new Label(
-            "HOW TO PLAY:\n\n" +
-                "• Use ARROW KEYS to move your character\n" +
-                "• Press SPACE to collect treasure\n\n" +
-                "Your goal is to collect as many treasures as possible before time runs out or before" +
-                "your opponent collects half the treasures.\n\n" +
-                "Good luck!",
+        Label instructionsLabel = new Label(  "🎮 How to Play:\n\n" +
+            "- Arrow keys for movement:\n" +
+            "  ↑ (Up Arrow): Move Forward\n" +
+            "  ↓ (Down Arrow): Move Back\n" +
+            "  → (Right Arrow): Move Right\n" +
+            "  ← (Left Arrow): Move Left\n\n" +
+            "- Press [SPACE] to collect a treasure when near it.\n" +
+            "- Treasures are invisible until you pass by them.\n" +
+            "- You are playing against an AI, so move fast!\n\n" +
+            "Good luck, treasure hunter! :)",
             skin
         );
         instructionsLabel.setWrap(true);
