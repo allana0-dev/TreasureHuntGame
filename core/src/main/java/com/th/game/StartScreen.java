@@ -10,6 +10,7 @@ import com.badlogic.gdx.scenes.scene2d.Stage;
 import com.badlogic.gdx.scenes.scene2d.actions.Actions;
 import com.badlogic.gdx.scenes.scene2d.ui.*;
 import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
+import com.badlogic.gdx.utils.Align;
 import com.badlogic.gdx.utils.Scaling;
 import com.badlogic.gdx.utils.viewport.ScreenViewport;
 
@@ -27,6 +28,8 @@ public class StartScreen implements Screen {
     private final Sound clickSound;
     /** Background music for the start screen */
     private final Music bgMusic;
+    /** Dialog for displaying instructions */
+    private Dialog instructionsDialog;
 
     /**
      * Constructs and initializes the start screen.
@@ -91,9 +94,9 @@ public class StartScreen implements Screen {
         form.add(rounds).row();
 
         // Treasures dropdown
-        form.add(new Label("Number of Treasures (5–15):", skin)).row();
+        form.add(new Label("Number of Treasures (10–20):", skin)).row();
         SelectBox<Integer> treasures = new SelectBox<>(skin);
-        treasures.setItems(5, 10, 15);
+        treasures.setItems(10, 15, 20);
         treasures.addListener(new ChangeListener() {
             @Override
             public void changed(ChangeEvent event, Actor actor) {
@@ -108,6 +111,8 @@ public class StartScreen implements Screen {
         form.add(timer).row();
 
         content.add(form).padBottom(30).row();
+
+        // We no longer need the buttons table since we're placing them separately
 
         // ▶ Start Game button
         TextButton start = new TextButton("Start Game", skin);
@@ -157,7 +162,84 @@ public class StartScreen implements Screen {
             }
         });
 
+        // ℹ️ Instructions button - styled differently from the start button
+        TextButton instructions = new TextButton("How to Play", skin);
+        instructions.pad(10, 25, 10, 25);
+        instructions.getLabel().setFontScale(1.0f);
+        instructions.addListener(new ChangeListener() {
+            @Override
+            public void changed(ChangeEvent event, Actor actor) {
+                // play click sound
+                clickSound.play();
+                // visual feedback
+                actor.addAction(Actions.sequence(
+                    Actions.scaleTo(1.1f, 1.1f, 0.1f),
+                    Actions.scaleTo(1f, 1f, 0.1f)
+                ));
+                // show instructions dialog
+                showInstructions();
+            }
+        });
+
+        // Add instructions button below form but above start button
+        content.add(instructions).padBottom(20).row();
+
+        // Add start game button
         content.add(start).row();
+
+        // Create instructions dialog (but don't show it yet)
+        createInstructionsDialog();
+    }
+
+    /**
+     * Creates the instructions dialog.
+     */
+    private void createInstructionsDialog() {
+        instructionsDialog = new Dialog("", skin);
+
+        Table contentTable = new Table();
+        contentTable.pad(20);
+        contentTable.defaults().space(10);
+
+        Label instructionsLabel = new Label(
+            "HOW TO PLAY:\n\n" +
+                "• Use ARROW KEYS to move your character\n" +
+                "• Press SPACE to collect treasure\n\n" +
+                "Your goal is to collect as many treasures as possible before time runs out or before" +
+                "your opponent collects half the treasures.\n\n" +
+                "Good luck!",
+            skin
+        );
+        instructionsLabel.setWrap(true);
+        instructionsLabel.setAlignment(Align.left);
+
+        contentTable.add(instructionsLabel).width(400).row();
+
+        TextButton closeButton = new TextButton("Close", skin);
+        closeButton.pad(10, 30, 10, 30);
+        closeButton.addListener(new ChangeListener() {
+            @Override
+            public void changed(ChangeEvent event, Actor actor) {
+                clickSound.play();
+                instructionsDialog.hide();
+            }
+        });
+
+        contentTable.add(closeButton).padTop(20);
+
+        instructionsDialog.getContentTable().add(contentTable);
+
+        instructionsDialog.setMovable(true);
+        instructionsDialog.setResizable(true);
+    }
+
+    /**
+     * Shows the instructions dialog.
+     */
+    private void showInstructions() {
+        instructionsDialog.show(stage);
+        instructionsDialog.setColor(1, 1, 1, 0);
+        instructionsDialog.addAction(Actions.fadeIn(0.3f));
     }
 
     /** Called when this screen becomes the current screen for a Game. */
