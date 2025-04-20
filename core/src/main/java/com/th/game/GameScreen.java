@@ -44,6 +44,8 @@ public class GameScreen implements Screen {
     private float roundPopupTimer = 0f;
     private final float ROUND_POPUP_DURATION = 2.5f; // Show popup for 2.5 seconds
     private BitmapFont largeFont; // For round popup text
+    private boolean hintEnabled;
+
 
     //speedboost
     private boolean showingAISpeedBoost = false;
@@ -146,7 +148,7 @@ public class GameScreen implements Screen {
         random = new Random();
 
 
-
+        this.hintEnabled = settings.hintsEnabled;
         showingRoundPopup = true;
         roundPopupTimer = 0f;
         countdownActive = false;
@@ -833,11 +835,14 @@ public class GameScreen implements Screen {
             // Reset font color
             largeFont.setColor(prevColor);
         }
-        if (hintAvailable) {
-            font.draw(batch, "Press H for Hint", camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 60);
-        } else {
-            font.draw(batch, "Hint available in: " + (int)hintCooldown, camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 60);
+        if(hintEnabled){
+            if (hintAvailable) {
+                font.draw(batch, "Press H for Hint", camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 60);
+            } else {
+                font.draw(batch, "Hint available in: " + (int)hintCooldown, camera.position.x - 380, camera.position.y + (camera.viewportHeight / 2f) - 60);
+            }
         }
+
 
         if (hintVisible && !currentHint.isEmpty()) {
             float alpha = 1.0f;
@@ -1055,7 +1060,7 @@ public class GameScreen implements Screen {
 
         // Handle hint button
 
-        if (Gdx.input.isKeyJustPressed(Input.Keys.H) && hintAvailable) {
+        if (Gdx.input.isKeyJustPressed(Input.Keys.H) && hintAvailable && hintEnabled) {
             currentHint = generateGlobalHint();
             if (!currentHint.isEmpty()) {
                 hintVisible = true;

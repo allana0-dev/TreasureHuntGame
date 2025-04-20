@@ -2,63 +2,60 @@ package com.th.game;
 
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Screen;
-import com.badlogic.gdx.audio.Sound;
 import com.badlogic.gdx.audio.Music;
-import com.badlogic.gdx.graphics.Texture;
+import com.badlogic.gdx.audio.Sound;
 import com.badlogic.gdx.graphics.Color;
+import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.Stage;
 import com.badlogic.gdx.scenes.scene2d.actions.Actions;
 import com.badlogic.gdx.scenes.scene2d.ui.Dialog;
 import com.badlogic.gdx.scenes.scene2d.ui.Image;
-import com.badlogic.gdx.scenes.scene2d.ui.Label;
-import com.badlogic.gdx.scenes.scene2d.ui.SelectBox;
-import com.badlogic.gdx.scenes.scene2d.ui.Table;
-import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
-import com.badlogic.gdx.scenes.scene2d.ui.TextField;
 import com.badlogic.gdx.scenes.scene2d.ui.Skin;
+import com.badlogic.gdx.scenes.scene2d.ui.Table;
 import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
-import com.badlogic.gdx.utils.Align;
 import com.badlogic.gdx.utils.Scaling;
 import com.badlogic.gdx.utils.viewport.ScreenViewport;
+import com.kotcrab.vis.ui.VisUI;
+import com.kotcrab.vis.ui.widget.VisCheckBox;
+import com.kotcrab.vis.ui.widget.VisLabel;
+import com.kotcrab.vis.ui.widget.VisSelectBox;
+import com.kotcrab.vis.ui.widget.VisTextButton;
+import com.kotcrab.vis.ui.widget.VisTextField;
+
+import java.util.List;
 
 /**
  * The StartScreen class represents the main menu screen of the game.
- * It allows the player to configure game settings such as number of rounds,
- * treasure count, and timer, and then start the game.
+ * It allows the player to configure settings: rounds, treasures, timer,
+ * map choice, and hints, before starting the game.
  */
 public class StartScreen implements Screen {
-    /** Stage for UI elements */
+    private final Main game;
     private final Stage stage;
-    /** Skin for styling UI widgets */
     private final Skin skin;
-    /** Sound effect played on button or dropdown interactions */
     private final Sound clickSound;
-    /** Background music for the start screen */
     private final Music bgMusic;
-    /** Dialog for displaying instructions */
     private Dialog instructionsDialog;
 
-    /**
-     * Constructs and initializes the start screen.
-     * @param game the Main game instance used to transition screens
-     */
     public StartScreen(Main game) {
-        this.stage = new Stage(new ScreenViewport());
+        this.game = game;
+
+        // Initialize VisUI skin for widgets
+        VisUI.load();
+        this.skin = VisUI.getSkin();
+
+        // Set up stage and input
+        stage = new Stage(new ScreenViewport());
         Gdx.input.setInputProcessor(stage);
 
-        this.skin = new Skin(Gdx.files.internal("ui/uiskin.json"));
-        this.clickSound = Gdx.audio.newSound(Gdx.files.internal("sfx/buttonclick.ogg"));
-        this.bgMusic = Gdx.audio.newMusic(Gdx.files.internal("music/startscreenmusic.ogg"));
-        this.bgMusic.setLooping(true);
-        this.bgMusic.play();
+        // Load sounds and music
+        clickSound = Gdx.audio.newSound(Gdx.files.internal("sfx/buttonclick.ogg"));
+        bgMusic    = Gdx.audio.newMusic(Gdx.files.internal("music/startscreenmusic.ogg"));
+        bgMusic.setLooping(true);
+        bgMusic.play();
 
-        // Define a dark brown color for labels (#5A3E1B)
-        Color darkBrown = new Color(0.353f, 0.243f, 0.110f, 1f);
-        Label.LabelStyle brownStyle = new Label.LabelStyle();
-        brownStyle.font = skin.getFont("font");
-        brownStyle.fontColor = darkBrown;
-
+        // Background image with pan animation
         Image background = new Image(new Texture(Gdx.files.internal("ui/startscreenbackground.png")));
         background.setFillParent(true);
         background.addAction(Actions.forever(
@@ -69,14 +66,13 @@ public class StartScreen implements Screen {
         ));
         stage.addActor(background);
 
-        Table rootTable = new Table();
-        rootTable.setFillParent(true);
-        rootTable.pad(30);
-        stage.addActor(rootTable);
+        // Root layout table
+        Table root = new Table();
+        root.setFillParent(true);
+        root.pad(30);
+        stage.addActor(root);
 
-        Table content = new Table();
-        rootTable.add(content).expand().center();
-
+        // Logo
         Image logo = new Image(new Texture(Gdx.files.internal("ui/logo.png")));
         logo.setScaling(Scaling.fit);
         logo.setSize(300, 80);
@@ -86,13 +82,18 @@ public class StartScreen implements Screen {
                 Actions.moveBy(0, -5, 1f)
             )
         ));
-        content.add(logo).padBottom(40).row();
+        root.add(logo).padBottom(40).row();
 
         Table form = new Table();
-        form.defaults().pad(10).width(300).center();
+        form.defaults().pad(5).width(300).center();
 
-        form.add(new Label("Number of Rounds (1–3):", brownStyle)).row();
-        SelectBox<Integer> rounds = new SelectBox<>(skin);
+        Color darkBrown = new Color(0.353f, 0.243f, 0.110f, 1f);
+
+        // Rounds
+        VisLabel roundsLabel = new VisLabel("Number of Rounds:");
+        roundsLabel.setColor(darkBrown);
+        form.add(roundsLabel).row();
+        VisSelectBox<Integer> rounds = new VisSelectBox<>();
         rounds.setItems(1, 2, 3);
         rounds.addListener(new ChangeListener() {
             @Override public void changed(ChangeListener.ChangeEvent event, Actor actor) {
@@ -101,8 +102,11 @@ public class StartScreen implements Screen {
         });
         form.add(rounds).row();
 
-        form.add(new Label("Number of Treasures (10–20):", brownStyle)).row();
-        SelectBox<Integer> treasures = new SelectBox<>(skin);
+        // Treasures
+        VisLabel treasuresLabel = new VisLabel("Number of Treasures:");
+        treasuresLabel.setColor(darkBrown);
+        form.add(treasuresLabel).row();
+        VisSelectBox<Integer> treasures = new VisSelectBox<>();
         treasures.setItems(10, 15, 20);
         treasures.addListener(new ChangeListener() {
             @Override public void changed(ChangeListener.ChangeEvent event, Actor actor) {
@@ -111,48 +115,72 @@ public class StartScreen implements Screen {
         });
         form.add(treasures).row();
 
-        form.add(new Label("Timer (sec, 0 = off):", brownStyle)).row();
-        TextField timer = new TextField("60", skin);
+        // Timer
+        VisLabel timerLabel = new VisLabel("Timer (sec, 0 = off):");
+        timerLabel.setColor(darkBrown);
+        form.add(timerLabel).row();
+        VisTextField timer = new VisTextField("60");
         form.add(timer).row();
 
-        content.add(form).padBottom(30).row();
-
-        TextButton instructions = new TextButton("How to Play", skin);
-        instructions.pad(10, 25, 10, 25);
-        instructions.getLabel().setFontScale(1f);
-        instructions.addListener(new ChangeListener() {
+        // Map choice: Random or Stored
+        VisLabel mapChoiceLabel = new VisLabel("Map Choice:");
+        mapChoiceLabel.setColor(darkBrown);
+        form.add(mapChoiceLabel).row();
+        VisSelectBox<String> mapType = new VisSelectBox<>();
+        mapType.setItems("Random", "Custom");
+        VisSelectBox<String> customMaps = new VisSelectBox<>();
+        mapType.addListener(new ChangeListener() {
             @Override public void changed(ChangeListener.ChangeEvent event, Actor actor) {
                 clickSound.play();
-                actor.addAction(Actions.sequence(
-                    Actions.scaleTo(1.1f, 1.1f, 0.1f),
-                    Actions.scaleTo(1f, 1f, 0.1f)
-                ));
+                // toggle custom map selector
+                boolean custom = mapType.getSelected().equals("Custom");
+                customMaps.setVisible(custom);
+            }
+        });
+        form.add(mapType).row();
+
+        // Custom map selector (initially hidden)
+        // Assume MapManager.getAvailableMapNames() returns List<String>
+        List<String> names = MapManager.getMapNames();
+        customMaps.setItems(names.toArray(new String[0]));
+        customMaps.setVisible(false);
+        customMaps.addListener(new ChangeListener() {
+            @Override public void changed(ChangeListener.ChangeEvent event, Actor actor) {
+                clickSound.play();
+            }
+        });
+        form.add(customMaps).row();
+
+        // Hints enabled
+        VisCheckBox hintCheckBox = new VisCheckBox(" Enable Hints");
+        hintCheckBox.setChecked(false);
+        hintCheckBox.addListener(new ChangeListener() {
+            @Override public void changed(ChangeListener.ChangeEvent event, Actor actor) {
+                clickSound.play();
+            }
+        });
+        form.add(hintCheckBox).row();
+
+        root.add(form).padBottom(10).row();
+
+        // Instructions
+        VisTextButton instrBtn = new VisTextButton("How to Play");
+        instrBtn.pad(5f, 40f, 5f, 40f);
+        instrBtn.addListener(new ChangeListener() {
+            @Override public void changed(ChangeListener.ChangeEvent event, Actor actor) {
+                clickSound.play();
                 showInstructions();
             }
         });
-        content.add(instructions).padBottom(20).row();
+        root.add(instrBtn).padBottom(20).row();
 
-        TextButton start = new TextButton("Start Game", skin);
-        start.getLabel().setFontScale(1.2f);
-        start.pad(15, 40, 15, 40);
-        start.addAction(Actions.sequence(
-            Actions.alpha(0f),
-            Actions.fadeIn(1f),
-            Actions.forever(
-                Actions.sequence(
-                    Actions.scaleTo(1f, 1f, 0.5f),
-                    Actions.scaleTo(1.05f, 1.05f, 0.5f)
-                )
-            )
-        ));
-        start.addListener(new ChangeListener() {
+        // Start Game
+        VisTextButton startBtn = new VisTextButton("Start Game");
+        startBtn.pad(20f, 40f, 20f, 40f);
+        startBtn.addListener(new ChangeListener() {
             @Override public void changed(ChangeListener.ChangeEvent event, Actor actor) {
                 clickSound.play();
                 bgMusic.stop();
-                actor.addAction(Actions.sequence(
-                    Actions.scaleTo(1.1f, 1.1f, 0.1f),
-                    Actions.scaleTo(1f, 1f, 0.1f)
-                ));
 
                 GameSettings cfg = new GameSettings();
                 cfg.totalRounds   = rounds.getSelected();
@@ -162,113 +190,58 @@ public class StartScreen implements Screen {
                 } catch (NumberFormatException e) {
                     cfg.timerDuration = 60;
                 }
-                cfg.gameMode = (cfg.timerDuration > 0)
+                cfg.gameMode      = cfg.timerDuration > 0
                     ? GameSettings.GameMode.TIMER
                     : GameSettings.GameMode.FIRST_TO_HALF;
-                cfg.mapType = GameSettings.MapType.RANDOM;
-                cfg.playerRoundsWon = cfg.aiRoundsWon = 0;
 
+                // map settings
+                if (mapType.getSelected().equals("Custom")) {
+                    cfg.mapType = GameSettings.MapType.STORED;
+                    cfg.selectedMapName = customMaps.getSelected();
+                } else {
+                    cfg.mapType = GameSettings.MapType.RANDOM;
+                }
+
+                cfg.hintsEnabled  = hintCheckBox.isChecked();
+                cfg.playerRoundsWon = cfg.aiRoundsWon = 0;
                 game.setScreen(new GameScreen(game, cfg));
             }
         });
-        content.add(start).row();
+
+
+
+
+        root.add(startBtn);
 
         createInstructionsDialog();
     }
 
-    /**
-     * Creates the instructions dialog.
-     */
     private void createInstructionsDialog() {
-        instructionsDialog = new Dialog("How to Play", skin);
-
-        Table contentTable = new Table();
-        contentTable.pad(20).defaults().space(10);
-
-        // Instructions text should be white on the dialog
-        Label.LabelStyle instructionsStyle = new Label.LabelStyle();
-        instructionsStyle.font = skin.getFont("font");
-        instructionsStyle.fontColor = Color.WHITE;
-
-        Label instructionsLabel = new Label(
+        instructionsDialog = new Dialog("",skin);
+        instructionsDialog.pad(40f);
+        instructionsDialog.text(
             "🎮 How to Play:\n\n" +
-                "- Arrow keys for movement:\n" +
-                "  ↑ (Up Arrow): Move Forward\n" +
-                "  ↓ (Down Arrow): Move Back\n" +
-                "  → (Right Arrow): Move Right\n" +
-                "  ← (Left Arrow): Move Left\n\n" +
-                "- Press [SPACE] to collect a treasure when near it.\n" +
-                "- Treasures are invisible until you pass by them.\n" +
-                "- You are playing against an AI, so move fast!\n\n" +
-                "Good luck, treasure hunter! :)",
-            instructionsStyle
+                "- Arrow keys to move\n" +
+                "- Press [SPACE] to collect when near\n" +
+                "- Treasures are invisible until nearby\n" +
+                "- Move fast, compete vs AI!"
         );
-        instructionsLabel.setWrap(true);
-        instructionsLabel.setAlignment(Align.left);
-
-        contentTable.add(instructionsLabel).width(400).row();
-
-        TextButton closeButton = new TextButton("Close", skin);
-        closeButton.pad(10, 30, 10, 30);
-        closeButton.addListener(new ChangeListener() {
-            @Override public void changed(ChangeListener.ChangeEvent event, Actor actor) {
-                clickSound.play();
-                instructionsDialog.hide();
-            }
-        });
-
-        contentTable.add(closeButton).padTop(20);
-
-        instructionsDialog.getContentTable().add(contentTable);
-        instructionsDialog.setMovable(true);
-        instructionsDialog.setResizable(true);
+        instructionsDialog.button("Close");
     }
 
-    /**
-     * Shows the instructions dialog with a fade-in effect.
-     */
     private void showInstructions() {
         instructionsDialog.show(stage);
-        instructionsDialog.setColor(1, 1, 1, 0);
-        instructionsDialog.addAction(Actions.fadeIn(0.3f));
     }
 
-    /** Called when this screen becomes the current screen for a Game. */
     @Override public void show() {}
-
-    /**
-     * Renders the stage and its actors.
-     * @param delta time in seconds since the last render
-     */
-    @Override public void render(float delta) {
-        stage.act(delta);
-        stage.draw();
-    }
-
-    /**
-     * Resizes the viewport when the window size changes.
-     * @param width new width in pixels
-     * @param height new height in pixels
-     */
-    @Override public void resize(int width, int height) {
-        stage.getViewport().update(width, height, true);
-    }
-
-    /** Called when the game is paused. */
+    @Override public void render(float delta) { stage.act(delta); stage.draw(); }
+    @Override public void resize(int width, int height) { stage.getViewport().update(width, height, true); }
     @Override public void pause() {}
-
-    /** Called when the game is resumed from a paused state. */
     @Override public void resume() {}
-
-    /** Called when this screen is no longer the current screen. */
     @Override public void hide() {}
-
-    /**
-     * Disposes of assets when they are no longer needed.
-     */
     @Override public void dispose() {
         stage.dispose();
-        skin.dispose();
+        VisUI.dispose();
         clickSound.dispose();
         bgMusic.dispose();
     }

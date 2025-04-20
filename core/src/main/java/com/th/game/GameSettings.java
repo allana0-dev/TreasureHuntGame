@@ -20,6 +20,9 @@ public class GameSettings {
         RANDOM
     }
 
+    public boolean hintsEnabled;
+
+
     /** The type of map selection for the game. */
     public MapType mapType;
     /** Name of the selected map when using STORED mapType. */
@@ -49,6 +52,8 @@ public class GameSettings {
      */
     public GameSettings() {
         playerRoundScores = new ArrayList<>();
-        aiRoundScores = new ArrayList<>();
+        aiRoundScores     = new ArrayList<>();
+        // default hints on
+        hintsEnabled      = true;
     }
 }
