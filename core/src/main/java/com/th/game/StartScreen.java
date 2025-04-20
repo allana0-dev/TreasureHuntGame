@@ -2,27 +2,48 @@ package com.th.game;
 
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Screen;
-import com.badlogic.gdx.graphics.Color;
+import com.badlogic.gdx.audio.Sound;
+import com.badlogic.gdx.audio.Music;
 import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.Stage;
 import com.badlogic.gdx.scenes.scene2d.actions.Actions;
 import com.badlogic.gdx.scenes.scene2d.ui.*;
 import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
-import com.badlogic.gdx.utils.Align;
 import com.badlogic.gdx.utils.Scaling;
 import com.badlogic.gdx.utils.viewport.ScreenViewport;
 
+/**
+ * The StartScreen class represents the main menu screen of the game.
+ * It allows the player to configure game settings such as number of rounds,
+ * treasure count, and timer, and then start the game.
+ */
 public class StartScreen implements Screen {
-    private final Main game;
+    /** Stage for UI elements */
     private final Stage stage;
+    /** Skin for styling UI widgets */
     private final Skin skin;
+    /** Sound effect played on button or dropdown interactions */
+    private final Sound clickSound;
+    /** Background music for the start screen */
+    private final Music bgMusic;
 
+    /**
+     * Constructs and initializes the start screen.
+     * @param game the Main game instance used to transition screens
+     */
     public StartScreen(Main game) {
-        this.game = game;
         this.stage = new Stage(new ScreenViewport());
         Gdx.input.setInputProcessor(stage);
+
+        // load UI skin
         this.skin = new Skin(Gdx.files.internal("ui/uiskin.json"));
+        // load click sound
+        this.clickSound = Gdx.audio.newSound(Gdx.files.internal("sfx/buttonclick.ogg"));
+        // load and play background music
+        this.bgMusic = Gdx.audio.newMusic(Gdx.files.internal("music/startscreenmusic.ogg"));
+        this.bgMusic.setLooping(true);
+        this.bgMusic.play();
 
         // 🌴 Background
         Texture backgroundTexture = new Texture(Gdx.files.internal("ui/Background2.png"));
@@ -30,63 +51,71 @@ public class StartScreen implements Screen {
         backgroundImage.setFillParent(true);
         stage.addActor(backgroundImage);
 
-        // 📦 Root layout
+        // 📦 Root layout with 30px margin
         Table rootTable = new Table();
         rootTable.setFillParent(true);
+        rootTable.pad(30);
         stage.addActor(rootTable);
 
-        // 📐 Center column content
+        // 📐 Center column
         Table content = new Table();
-        rootTable.add(content).expand().top().padTop(60); // Shifted up
+        rootTable.add(content).expand().top().padTop(20);
 
-        // 🪧 Logo with bounce effect
-        Texture logoTexture = new Texture(Gdx.files.internal("ui/Scout Logo for game_1@4x.png"));
-        Image logoImage = new Image(logoTexture);
-        logoImage.setScaling(Scaling.fit);
-        logoImage.setSize(300, 80);
-        logoImage.setColor(1f, 1f, 1f, 1f);
+        // 🪧 Logo with bounce
+        Texture logoTex = new Texture(Gdx.files.internal("ui/Scout Logo for game_1@4x.png"));
+        Image logo = new Image(logoTex);
+        logo.setScaling(Scaling.fit);
+        logo.setSize(300, 80);
+        logo.addAction(Actions.forever(
+            Actions.sequence(
+                Actions.moveBy(0, 5, 1f),
+                Actions.moveBy(0, -5, 1f)
+            )
+        ));
+        content.add(logo).center().padBottom(40).row();
 
-        // Bouncing animation
-        logoImage.addAction(Actions.forever(Actions.sequence(
-            Actions.moveBy(0, 5, 1f),
-            Actions.moveBy(0, -5, 1f)
-        )));
+        // 🧾 Form inputs
+        Table form = new Table();
+        form.defaults().pad(10).width(300).center();
 
-        content.add(logoImage).center().padBottom(40).row();
+        // Rounds dropdown
+        form.add(new Label("Number of Rounds (1–3):", skin)).row();
+        SelectBox<Integer> rounds = new SelectBox<>(skin);
+        rounds.setItems(1, 2, 3);
+        rounds.addListener(new ChangeListener() {
+            @Override
+            public void changed(ChangeEvent event, Actor actor) {
+                clickSound.play();
+            }
+        });
+        form.add(rounds).row();
 
-        // 🧾 Form
-        Table formTable = new Table();
-        formTable.defaults().pad(10).width(300).center();
+        // Treasures dropdown
+        form.add(new Label("Number of Treasures (5–15):", skin)).row();
+        SelectBox<Integer> treasures = new SelectBox<>(skin);
+        treasures.setItems(5, 10, 15);
+        treasures.addListener(new ChangeListener() {
+            @Override
+            public void changed(ChangeEvent event, Actor actor) {
+                clickSound.play();
+            }
+        });
+        form.add(treasures).row();
 
-        // Number of Rounds
-        formTable.add(new Label("Number of Rounds (1, 2, or 3):", skin)).center().row();
-        SelectBox<Integer> roundsSelect = new SelectBox<>(skin);
-        roundsSelect.setItems(1, 2, 3);
-        formTable.add(roundsSelect).width(220).center().row();
+        // Timer input
+        form.add(new Label("Timer (sec, 0 = off):", skin)).row();
+        TextField timer = new TextField("60", skin);
+        form.add(timer).row();
 
-        // Number of Treasures
-        formTable.add(new Label("Number of Treasures (10, 15, or 20):", skin)).center().row();
-        SelectBox<Integer> treasureSelect = new SelectBox<>(skin);
-        treasureSelect.setItems(5, 10, 15);
-        formTable.add(treasureSelect).width(220).center().row();
+        content.add(form).padBottom(30).row();
 
-        // Timer
-        formTable.add(new Label("Timer Duration (sec, 0 = no timer):", skin)).center().row();
-        TextField timerField = new TextField("60", skin);
-        formTable.add(timerField).width(220).center().row();
+        // ▶ Start Game button
+        TextButton start = new TextButton("Start Game", skin);
+        start.getLabel().setFontScale(1.2f);
+        start.pad(15, 40, 15, 40);
 
-        content.add(formTable).center().padBottom(30).row();
-
-        // ▶ Start Button
-        TextButton startButton = new TextButton("Start Game", skin);
-        TextButton.TextButtonStyle bstyle = skin.get(TextButton.TextButtonStyle.class);
-        bstyle.font.getData().setScale(1.2f);
-        startButton.setStyle(bstyle);
-        startButton.getLabel().setColor(Color.WHITE);
-        startButton.pad(15, 40, 15, 40);
-        startButton.setColor(Color.valueOf("#333333"));
-
-        startButton.addAction(Actions.sequence(
+        // Fade‑in + subtle pulse
+        start.addAction(Actions.sequence(
             Actions.alpha(0f),
             Actions.fadeIn(1f),
             Actions.forever(Actions.sequence(
@@ -95,58 +124,90 @@ public class StartScreen implements Screen {
             ))
         ));
 
-        // 🎮 Start Game Logic
-        startButton.addListener(new ChangeListener() {
+        start.addListener(new ChangeListener() {
             @Override
             public void changed(ChangeEvent event, Actor actor) {
+                // play click sound
+                clickSound.play();
+                // stop background music
+                bgMusic.stop();
+                // visual feedback
                 actor.addAction(Actions.sequence(
                     Actions.scaleTo(1.1f, 1.1f, 0.1f),
                     Actions.scaleTo(1f, 1f, 0.1f)
                 ));
 
-                GameSettings settings = new GameSettings();
-                settings.totalRounds = roundsSelect.getSelected();
-                settings.treasureCount = treasureSelect.getSelected();
+                GameSettings cfg = new GameSettings();
+                cfg.totalRounds   = rounds.getSelected();
+                cfg.treasureCount = treasures.getSelected();
 
                 try {
-                    settings.timerDuration = Float.parseFloat(timerField.getText());
+                    cfg.timerDuration = Float.parseFloat(timer.getText());
                 } catch (NumberFormatException e) {
-                    settings.timerDuration = 60;
+                    cfg.timerDuration = 60;
                 }
 
-                settings.gameMode = (settings.timerDuration > 0)
+                cfg.gameMode = (cfg.timerDuration > 0)
                     ? GameSettings.GameMode.TIMER
                     : GameSettings.GameMode.FIRST_TO_HALF;
+                cfg.mapType = GameSettings.MapType.RANDOM;
+                cfg.playerRoundsWon = cfg.aiRoundsWon = 0;
 
-                settings.mapType = GameSettings.MapType.RANDOM;
-                settings.playerRoundsWon = 0;
-                settings.aiRoundsWon = 0;
-
-                game.setScreen(new GameScreen(game, settings));
+                game.setScreen(new GameScreen(game, cfg));
             }
         });
 
-        content.add(startButton).center().padTop(10);
+        content.add(start).row();
     }
 
-    @Override public void show() {}
-    @Override public void render(float delta) {
+    /** Called when this screen becomes the current screen for a Game. */
+    @Override
+    public void show() {
+    }
+
+    /**
+     * Renders the stage and its actors.
+     * @param delta time in seconds since the last render
+     */
+    @Override
+    public void render(float delta) {
         stage.act(delta);
         stage.draw();
     }
-    @Override public void resize(int width, int height) {
+
+    /**
+     * Resizes the viewport when the window size changes.
+     * @param width new width in pixels
+     * @param height new height in pixels
+     */
+    @Override
+    public void resize(int width, int height) {
         stage.getViewport().update(width, height, true);
     }
-    @Override public void pause() {}
-    @Override public void resume() {}
-    @Override public void hide() {}
-    @Override public void dispose() {
+
+    /** Called when the game is paused. */
+    @Override
+    public void pause() {
+    }
+
+    /** Called when the game is resumed from a paused state. */
+    @Override
+    public void resume() {
+    }
+
+    /** Called when this screen is no longer the current screen. */
+    @Override
+    public void hide() {
+    }
+
+    /**
+     * Disposes of assets when they are no longer needed.
+     */
+    @Override
+    public void dispose() {
         stage.dispose();
         skin.dispose();
+        clickSound.dispose();
+        bgMusic.dispose();
     }
 }
-
-
-
-
-
