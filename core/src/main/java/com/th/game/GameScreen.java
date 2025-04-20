@@ -990,6 +990,9 @@ public class GameScreen implements Screen {
      * Update your existing handlePlayerInput method to include this logic
      */
     private void handlePlayerInput(float delta) {
+        if (countdownActive || showingRoundPopup) {
+            return;
+        }
         Vector2 oldPosition = new Vector2(player.position);
         if (Gdx.input.isKeyPressed(Input.Keys.LEFT)) {
             player.position.x -= player.speed * delta;
