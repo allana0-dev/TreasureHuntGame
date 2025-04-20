@@ -1,7 +1,12 @@
-package com.th.game;
+package com.th.game.extenders.ai;
 
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector2;
+import com.th.game.ai.SmartAI;
+import com.th.game.database.TrainingDataDAO;
+import com.th.game.database.TreasureCollectionData;
+import com.th.game.entities.Landmark;
+
 import java.sql.SQLException;
 import java.util.*;
 
@@ -465,36 +470,6 @@ public class HistoricalAIData {
     }
 
     /**
-     * Checks if there are any hotspots near the AI's current position
-     */
-    public boolean checkForNearbyHotspots(Vector2 currentPosition) {
-        if (treasureHotspots.isEmpty()) {
-            return false;
-        }
-
-        // Find the closest database hotspot
-        Vector2 closest = null;
-        float minDist = Float.MAX_VALUE;
-
-        for (Vector2 hotspot : treasureHotspots) {
-            float dist = currentPosition.dst(hotspot);
-            if (dist < minDist) {
-                minDist = dist;
-                closest = hotspot;
-            }
-        }
-
-        // If we're close to a hotspot, target it
-        if (closest != null && minDist < 300f) {
-            smartAI.setTarget(new Vector2(closest), true);
-            lastDatabaseTarget = new Vector2(closest);
-            return true;
-        }
-
-        return false;
-    }
-
-    /**
      * Notifies the manager that a treasure was collected
      */
     public void notifyTreasureCollected(Vector2 treasurePosition) {
@@ -628,16 +603,4 @@ public class HistoricalAIData {
         return true;
     }
 
-    /**
-     * Updates the current map
-     */
-    public void updateMap(String newMapName) {
-        if (!currentMapName.equals(newMapName)) {
-            currentMapName = newMapName;
-            loadTreasureHotspotsFromDatabase();
-            visitedHotspots.clear();
-            lastDatabaseTarget = null;
-            hasProcessedHint = false;
-        }
-    }
 }

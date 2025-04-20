@@ -1,4 +1,4 @@
-package com.th.game;
+package com.th.game.database;
 
 import java.sql.*;
 import java.util.ArrayList;

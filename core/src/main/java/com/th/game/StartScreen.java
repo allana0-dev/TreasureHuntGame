@@ -22,6 +22,8 @@ import com.kotcrab.vis.ui.widget.VisLabel;
 import com.kotcrab.vis.ui.widget.VisSelectBox;
 import com.kotcrab.vis.ui.widget.VisTextButton;
 import com.kotcrab.vis.ui.widget.VisTextField;
+import com.th.game.util.map.MapManager;
+import com.th.game.screens.GameScreen;
 
 import java.util.List;
 

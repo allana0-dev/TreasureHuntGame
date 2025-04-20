@@ -1,4 +1,4 @@
-package com.th.game;
+package com.th.game.util.map;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -51,8 +51,6 @@ public class MapManager {
     static {
         // Initialize the list of built-in maps
         maps.add(new MapInfo("Map 1", "maps/map1.tmx"));
-        // To add more maps, register here:
-        // maps.add(new MapInfo("Map 2", "maps/map2.tmx"));
     }
 
     /**

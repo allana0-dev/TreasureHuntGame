@@ -1,9 +1,8 @@
-package com.th.game;
+package com.th.game.ai;
 
 import com.badlogic.gdx.ai.pfa.DefaultGraphPath;
 import com.badlogic.gdx.ai.pfa.GraphPath;
 import com.badlogic.gdx.ai.pfa.indexed.IndexedAStarPathFinder;
-import com.badlogic.gdx.ai.pfa.indexed.IndexedGraph;
 import com.badlogic.gdx.ai.steer.Steerable;
 import com.badlogic.gdx.ai.steer.SteeringAcceleration;
 import com.badlogic.gdx.ai.steer.SteeringBehavior;
@@ -12,6 +11,13 @@ import com.badlogic.gdx.maps.tiled.TiledMap;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.utils.Array;
+import com.th.game.extenders.ai.HistoricalAIData;
+import com.th.game.entities.Landmark;
+import com.th.game.util.Direction;
+import com.th.game.ai.pathfinder.MapHeuristic;
+import com.th.game.ai.pathfinder.TiledMapGraph;
+import com.th.game.ai.pathfinder.TiledNode;
+import com.th.game.screens.GameScreen;
 
 import java.util.List;
 import java.util.Random;
@@ -51,7 +57,7 @@ public class SmartAI implements Steerable<Vector2> {
     private static final float DIRECTION_SWITCH_THRESHOLD = 5f;
     private int currentPathIndex;
     private Vector2 targetPosition = new Vector2();
-    boolean hasTarget = false;
+    public boolean hasTarget = false;
     private boolean pathNeedsRefresh = false;
     private float pathRefreshTimer = 0f;
     private final float PATH_REFRESH_INTERVAL = 1.5f;

@@ -1,4 +1,4 @@
-package com.th.game;
+package com.th.game.screens;
 
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
@@ -29,6 +29,17 @@ import com.badlogic.gdx.maps.tiled.TiledMap;
 import com.badlogic.gdx.maps.tiled.renderers.OrthogonalTiledMapRenderer;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.utils.Array;
+import com.th.game.*;
+import com.th.game.ai.SmartAI;
+import com.th.game.database.TrainingDataDAO;
+import com.th.game.database.TreasureCollectionData;
+import com.th.game.entities.Landmark;
+import com.th.game.util.map.MapManager;
+import com.th.game.entities.Player;
+import com.th.game.entities.TreasureChest;
+import com.th.game.util.Direction;
+import com.th.game.GameSettings;
+
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -1254,7 +1265,7 @@ public class GameScreen implements Screen {
         showingRoundPopup = true;
         roundPopupTimer = 0f;
     }
-    boolean isWalkable(Vector2 pos) {
+    public boolean isWalkable(Vector2 pos) {
         // --- 1. Check if position is within map bounds ---
         int mapTileWidth = tiledMap.getProperties().get("width", Integer.class);
         int mapTileHeight = tiledMap.getProperties().get("height", Integer.class);

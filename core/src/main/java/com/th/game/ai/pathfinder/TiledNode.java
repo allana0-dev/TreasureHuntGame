@@ -1,7 +1,4 @@
-package com.th.game;
-
-import com.badlogic.gdx.ai.pfa.Heuristic;
-
+package com.th.game.ai.pathfinder;
 /**
  * A node in the navigation graph used for pathfinding.
  * Represents a walkable position on the tile map.
@@ -36,24 +33,3 @@ public class TiledNode {
     }
 }
 
-/**
- * A heuristic for A* pathfinding that uses Manhattan distance
- * with diagonal movement allowed.
- */
-class MapHeuristic implements Heuristic<TiledNode> {
-    @Override
-    public float estimate(TiledNode node, TiledNode endNode) {
-        // Use Manhattan distance (cardinal directions only)
-        int dx = Math.abs(node.gridX - endNode.gridX);
-        int dy = Math.abs(node.gridY - endNode.gridY);
-
-        // Manhattan distance
-        float h = dx + dy;
-
-        // Small tie-breaking factor
-        h *= 1.0f + 0.001f;
-
-        return h;
-    }
-
-}
