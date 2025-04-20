@@ -4,7 +4,10 @@ import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Screen;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.scenes.scene2d.Stage;
-import com.badlogic.gdx.scenes.scene2d.ui.*;
+import com.badlogic.gdx.scenes.scene2d.ui.Label;
+import com.badlogic.gdx.scenes.scene2d.ui.Skin;
+import com.badlogic.gdx.scenes.scene2d.ui.Table;
+import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
 import com.badlogic.gdx.utils.viewport.ScreenViewport;
 
 public class EndScreen implements Screen {
@@ -25,7 +28,10 @@ public class EndScreen implements Screen {
         String result;
         if (playerRoundsWon > aiRoundsWon) result = "Player is the Overall Champion!";
         else if (aiRoundsWon > playerRoundsWon) result = "AI is the Overall Champion!";
-        else result = "The Match is a Tie!";
+        else
+            result = "The Match is a Tie!";
+
+        
 
         // Use default style instead of "title"
         Label titleLabel = new Label("Game Over", skin);
