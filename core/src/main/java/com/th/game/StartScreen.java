@@ -49,7 +49,7 @@ public class StartScreen implements Screen {
         this.bgMusic.play();
 
         // 🌴 Background
-        Texture backgroundTexture = new Texture(Gdx.files.internal("ui/Background2.png"));
+        Texture backgroundTexture = new Texture(Gdx.files.internal("ui/startscreenbackground.png"));
         Image backgroundImage = new Image(backgroundTexture);
         backgroundImage.setFillParent(true);
         stage.addActor(backgroundImage);
@@ -65,7 +65,7 @@ public class StartScreen implements Screen {
         rootTable.add(content).expand().top().padTop(20);
 
         // 🪧 Logo with bounce
-        Texture logoTex = new Texture(Gdx.files.internal("ui/Scout Logo for game_1@4x.png"));
+        Texture logoTex = new Texture(Gdx.files.internal("ui/logo.png"));
         Image logo = new Image(logoTex);
         logo.setScaling(Scaling.fit);
         logo.setSize(300, 80);
