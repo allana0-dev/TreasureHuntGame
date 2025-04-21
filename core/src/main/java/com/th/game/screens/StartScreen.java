@@ -212,10 +212,21 @@ public class StartScreen implements Screen {
             }
         });
 
+        // Quit Game Button
+        VisTextButton quitBtn = new VisTextButton("Quit Game");
+        quitBtn.pad(20f, 40f, 20f, 40f);
+        quitBtn.addListener(new ChangeListener() {
+            @Override public void changed(ChangeListener.ChangeEvent event, Actor actor) {
+                clickSound.play();
+                Gdx.app.exit();  // This will close the application
+            }
+        });
 
-
-
-        root.add(startBtn);
+        // Add the buttons next to each other
+        Table buttonTable = new Table();
+        buttonTable.add(startBtn).pad(10).fillX();
+        buttonTable.add(quitBtn).pad(10).fillX();
+        root.add(buttonTable).padBottom(20).row();
 
         createInstructionsDialog();
     }
