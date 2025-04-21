@@ -94,14 +94,12 @@ public class EndScreen implements Screen {
                 
                 Label playerScoreLabel = new Label(Integer.toString(playerScore), this.skin);
                 playerScoreLabel.setStyle(new Label.LabelStyle(playerScoreLabel.getStyle()));
-                playerScoreLabel.setFontScale(2.0F);
-                playerScore.setFontScale(2.0f);
+                playerScoreLabel.setFontScale(2.0F);               
                 table.add(playerScoreLabel).padRight(10.0F);
                 
                 Label aiScoreLabel = new Label(Integer.toString(aiScore), this.skin);
                 aiScoreLabel.setStyle(new Label.LabelStyle(aiScoreLabel.getStyle()));
-                aiScoreLabel.setFontScale(2.0f);
-                aiScore.setFontScale(2.0f);
+                aiScoreLabel.setFontScale(2.0f);               
                 table.add(aiScoreLabel).padBottom(10.0F);
             }
         } else {
