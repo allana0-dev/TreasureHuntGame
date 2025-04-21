@@ -43,8 +43,9 @@ public class StartScreen implements Screen {
     public StartScreen(Main game) {
         this.game = game;
 
-        // Initialize VisUI skin for widgets
-        VisUI.load();
+        if (!VisUI.isLoaded()) {
+            VisUI.load();
+        }
         this.skin = VisUI.getSkin();
 
         // Set up stage and input

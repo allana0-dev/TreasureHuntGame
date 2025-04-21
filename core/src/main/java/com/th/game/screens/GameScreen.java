@@ -1228,8 +1228,8 @@ public class GameScreen implements Screen {
         hintCooldown = 0f;
         showingRoundPopup = true;
         roundPopupTimer = 0f;
-        countdownActive = false; // Change to false - we'll start countdown after round popup
-
+        countdownActive = false;
+        gameStarted = false;
         createSpawnPositions();
 
         // Reload all landmarks from the map
