@@ -14,6 +14,9 @@ import com.th.game.util.Direction;
 import java.sql.SQLException;
 import java.util.Iterator;
 
+/**
+ * Handles player controls (movement, treasure collection, hints) for GameScreen.
+ */
 public class PlayerInputExtender {
     private final GameScreen gameScreen;
     private final int mapPixelWidth;

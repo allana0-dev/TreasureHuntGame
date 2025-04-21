@@ -104,15 +104,6 @@ public class TreasureChest {
     }
 
     /**
-     * Renders the chest fully opaque.
-     *
-     * @param batch the SpriteBatch used for drawing
-     */
-    public void render(SpriteBatch batch) {
-        render(batch, 1f);
-    }
-
-    /**
      * Disposes of all textures used by this chest's animation frames.
      */
     public void dispose() {

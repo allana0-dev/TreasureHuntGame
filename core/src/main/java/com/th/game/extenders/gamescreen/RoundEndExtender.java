@@ -3,6 +3,9 @@ import com.badlogic.gdx.math.Vector2;
 import com.th.game.entities.TreasureChest;
 import com.th.game.screens.GameScreen;
 
+/**
+ * Handles end-of-round processing: updates scores, logs training data, and transitions to the next round or end screen.
+ */
 public class RoundEndExtender {
     private final GameScreen gameScreen;
 

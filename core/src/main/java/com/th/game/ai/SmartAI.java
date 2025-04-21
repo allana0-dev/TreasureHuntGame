@@ -4,8 +4,6 @@ import com.badlogic.gdx.ai.pfa.DefaultGraphPath;
 import com.badlogic.gdx.ai.pfa.GraphPath;
 import com.badlogic.gdx.ai.pfa.indexed.IndexedAStarPathFinder;
 import com.badlogic.gdx.ai.steer.Steerable;
-import com.badlogic.gdx.ai.steer.SteeringAcceleration;
-import com.badlogic.gdx.ai.steer.SteeringBehavior;
 import com.badlogic.gdx.ai.utils.Location;
 import com.badlogic.gdx.maps.tiled.TiledMap;
 import com.badlogic.gdx.math.MathUtils;
@@ -13,6 +11,7 @@ import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.utils.Array;
 import com.th.game.extenders.ai.HistoricalAIData;
 import com.th.game.entities.Landmark;
+import com.th.game.util.AIState;
 import com.th.game.util.Direction;
 import com.th.game.ai.pathfinder.MapHeuristic;
 import com.th.game.ai.pathfinder.TiledMapGraph;
@@ -20,7 +19,6 @@ import com.th.game.ai.pathfinder.TiledNode;
 import com.th.game.screens.GameScreen;
 
 import java.util.List;
-import java.util.Random;
 
 /**
  * A smarter AI implementation using LibGDX's built-in AI and pathfinding capabilities.
@@ -37,7 +35,6 @@ public class SmartAI implements Steerable<Vector2> {
     private final Vector2 previousPosition = new Vector2();
     private final Vector2 linearVelocity = new Vector2();
     private boolean movedThisFrame = false;
-    private Random random = new Random();
 
     // Movement and pathfinding
     private float moveSpeed = 100f;
@@ -51,7 +48,6 @@ public class SmartAI implements Steerable<Vector2> {
     private TiledMapGraph mapGraph;
     private IndexedAStarPathFinder<TiledNode> pathFinder;
     private GraphPath<TiledNode> currentPath;
-    private static final float DIRECTION_SWITCH_THRESHOLD = 5f;
     private int currentPathIndex;
     private Vector2 targetPosition = new Vector2();
     public boolean hasTarget = false;
@@ -60,8 +56,6 @@ public class SmartAI implements Steerable<Vector2> {
     private final float PATH_REFRESH_INTERVAL = 1.5f;
 
     // Steering behavior
-    private SteeringBehavior<Vector2> steeringBehavior;
-    private SteeringAcceleration<Vector2> steeringOutput = new SteeringAcceleration<>(new Vector2());
     private float maxLinearSpeed = 100f;
     private float maxLinearAcceleration = 200f;
     private float maxAngularSpeed = 0f;
@@ -74,14 +68,6 @@ public class SmartAI implements Steerable<Vector2> {
     private int repathAttempts = 0;
     private static final int MAX_REPATH_ATTEMPTS = 3;
 
-
-
-    // AI State
-    private enum AIState {
-        ROAMING,       // Random wandering behavior
-        EXPLORING,     // Systematically exploring the map
-        SEEKING        // Moving toward a target (landmark or treasure)
-    }
 
     private AIState currentState = AIState.EXPLORING;
     private HistoricalAIData databaseManager;
@@ -211,6 +197,12 @@ public class SmartAI implements Steerable<Vector2> {
         // UPDATE VISUAL FACING DIRECTION
         updateDirection(delta);
     }
+    /**
+     * Clamps a position to stay within the map boundaries.
+     *
+     * @param pos the world coordinates to clamp
+     * @return the clamped position vector
+     */
     private Vector2 clampInside(Vector2 pos) {
         // Grab map and tile dims from your graph
         int mapW = mapGraph.getWidth();
@@ -228,6 +220,9 @@ public class SmartAI implements Steerable<Vector2> {
         return pos;
     }
 
+    /**
+     * On AI stuck: clear path, snap to a valid node, pick a new target, reset velocity.
+     */
     private void onStuck(GameScreen gameScreen) {
         repathAttempts++;
         snapToValidNode();
@@ -289,7 +284,7 @@ public class SmartAI implements Steerable<Vector2> {
             // Reset index so we start at the first node
             currentPathIndex = 0;
 
-            // Build a simple debug list of world‐space points
+            // simple debug list of world‐space points
             for (TiledNode node : currentPath) {
                 pathVisualizer.add(new Vector2(node.x, node.y));
             }
@@ -312,7 +307,7 @@ public class SmartAI implements Steerable<Vector2> {
             return;
         }
 
-        // 1) Figure out which cardinal direction we _should_ be heading
+        //  Figure out which cardinal direction we _hould be heading
         TiledNode nextNode = currentPath.get(currentPathIndex);
         Vector2 nextPos = new Vector2(nextNode.x, nextNode.y);
         float dx = nextPos.x - position.x;
@@ -339,7 +334,7 @@ public class SmartAI implements Steerable<Vector2> {
         );
         linearVelocity.set(moveVec).scl(moveSpeed);
 
-        // Attempt to move (with your walkability checks)
+        // Attempt to move (with walkability checks)
         Vector2 oldPos     = new Vector2(position);
         Vector2 proposed   = oldPos.cpy().add(linearVelocity.x * delta, linearVelocity.y * delta);
         if (gameScreen.isWalkable(proposed)) {
@@ -369,7 +364,7 @@ public class SmartAI implements Steerable<Vector2> {
         if (position.dst(nextPos) < 5f) {
             currentPathIndex++;
             linearVelocity.setZero();
-            repathAttempts = 0;  // made progress
+            repathAttempts = 0;
         }
     }
     /**
@@ -500,6 +495,12 @@ public class SmartAI implements Steerable<Vector2> {
         }
         return null;
     }
+
+    /**
+     * Ensures the AI is positioned on a valid grid node.
+     * <p>If the current world coordinates don’t map to a node, this finds the closest
+     * walkable node and snaps the AI’s position to it.</p>
+     */
     private void snapToValidNode() {
         // Get the AI's current grid position
         TiledNode currentNode = mapGraph.getNodeAtWorldCoordinates(position.x, position.y);

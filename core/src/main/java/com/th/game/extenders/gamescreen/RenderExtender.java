@@ -11,6 +11,9 @@ import com.th.game.entities.TreasureChest;
 import com.th.game.screens.GameScreen;
 import com.th.game.util.settings.GameSettings;
 
+/**
+ * Handles all GameScreen rendering: clears the screen, draws the map, entities, HUD, effects, popups, countdowns, and hints.
+ */
 public class RenderExtender {
 
     private final GameScreen gameScreen;

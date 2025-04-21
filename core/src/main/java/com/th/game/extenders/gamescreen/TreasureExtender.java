@@ -9,6 +9,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
+/**
+ * Distributes and places treasure chests across the map each round for GameScreen.
+ */
 public class TreasureExtender {
     private final GameScreen gameScreen;
     private final Random random;
