@@ -52,7 +52,7 @@ public class EndScreen implements Screen {
 
         // Use default style instead of "title"
         Label titleLabel = new Label("Game Over", skin);
-        titleLabel.setFontScale(2.0f); // Make it bigger instead of using a special style
+        titleLabel.setFontScale(10.0f); // Make it bigger instead of using a special style
         table.add(titleLabel).colspan(3).padBottom(30);
         table.row();
 
@@ -79,23 +79,29 @@ public class EndScreen implements Screen {
         aiScoreLbl.setFontScale(2.0F);
         table.add(aiScoreLbl).padBottom(10.0F);
         table.row();
-        table.add(new Label("-----", this.skin)).padRight(10.0F);
+        table.add(new Label("----", this.skin)).padRight(10.0F);
         if (settings.playerRoundScores != null && settings.aiRoundScores != null) {
             for (int i = 0; i < settings.playerRoundScores.size(); ++i) {
                 table.row();
                 int playerScore = (Integer) settings.playerRoundScores.get(i);
                 int aiScore = (Integer) settings.aiRoundScores.get(i);
+                
+                
                 Label roundLabel = new Label("Round " + (i + 1), this.skin);
                 roundLabel.setStyle(new Label.LabelStyle(roundLabel.getStyle()));
                 roundLabel.setFontScale(2.0F);
                 table.add(roundLabel).padRight(10.0F);
+                
                 Label playerScoreLabel = new Label(Integer.toString(playerScore), this.skin);
                 playerScoreLabel.setStyle(new Label.LabelStyle(playerScoreLabel.getStyle()));
                 playerScoreLabel.setFontScale(2.0F);
+                playerScore.setFontScale(2.0f);
                 table.add(playerScoreLabel).padRight(10.0F);
+                
                 Label aiScoreLabel = new Label(Integer.toString(aiScore), this.skin);
                 aiScoreLabel.setStyle(new Label.LabelStyle(aiScoreLabel.getStyle()));
-                aiScoreLabel.setFontScale(2.0F);
+                aiScoreLabel.setFontScale(2.0f);
+                aiScore.setFontScale(2.0f);
                 table.add(aiScoreLabel).padBottom(10.0F);
             }
         } else {
@@ -108,6 +114,7 @@ public class EndScreen implements Screen {
         table.row();
         table.add().height(20.0F);
         table.row();
+        
         Label totalLabel = new Label("Total Rounds Won:", this.skin);
         totalLabel.setStyle(new Label.LabelStyle(totalLabel.getStyle()));
         totalLabel.setFontScale(2.2F);
@@ -115,16 +122,20 @@ public class EndScreen implements Screen {
         table.add(new Label(Integer.toString(playerRoundsWon), this.skin)).padBottom(10.0F).padTop(10.0F);
         table.add(new Label(Integer.toString(aiRoundsWon), this.skin)).padBottom(10.0F).padTop(10.0F);
         table.row();
+        
         Label resultLabel = new Label(result, this.skin);
         resultLabel.setFontScale(2.5F);
         table.add(resultLabel).colspan(3).padBottom(20.0F).pad(20.0F).width(300.0F).height(80.0F);
         table.row();
+        
         TextButton restartButton = new TextButton("Restart", this.skin);
         restartButton.getLabel().setFontScale(4.5F);
         restartButton.getLabel().setColor(Color.ORANGE);
+        
         TextButton quitButton = new TextButton("Quit", this.skin);
         quitButton.getLabel().setFontScale(4.5F);
         quitButton.getLabel().setColor(Color.RED);
+        
         table.add(restartButton).padRight(20.0F).colspan(1);
         table.add(quitButton).colspan(2);
         restartButton.addListener((event) -> {
