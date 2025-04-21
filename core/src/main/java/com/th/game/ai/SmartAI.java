@@ -37,9 +37,6 @@ public class SmartAI implements Steerable<Vector2> {
     private final Vector2 previousPosition = new Vector2();
     private final Vector2 linearVelocity = new Vector2();
     private boolean movedThisFrame = false;
-
-
-
     private Random random = new Random();
 
     // Movement and pathfinding
@@ -88,8 +85,6 @@ public class SmartAI implements Steerable<Vector2> {
 
     private AIState currentState = AIState.EXPLORING;
     private HistoricalAIData databaseManager;
-
-    // Path visualization (for debugging)
     private Array<Vector2> pathVisualizer = new Array<>();
 
     /**
@@ -142,30 +137,11 @@ public class SmartAI implements Steerable<Vector2> {
             this.currentState = AIState.EXPLORING;
         }
     }
-    private void nudgePositionOffNode() {
-        // Only nudge along one axis: pick X or Y at random
-        boolean nudgeX = random.nextBoolean();
-        float offset = (random.nextBoolean() ? 1 : -1) * 2f; // 2px in either direction
-
-        if (nudgeX) {
-            position.x += offset;
-        } else {
-            position.y += offset;
-        }
-
-        // Reset velocity so we don't treat this as diagonal movement
-        linearVelocity.setZero();
-        // Also reset previousPosition so stuck detection doesn't immediately retrigger
-        previousPosition.set(position);
-    }
 
     /**
      * Updates the AI's position and behavior
      */
     public void update(float delta, GameScreen gameScreen) {
-        // --- 1) STUCK DETECTION ---
-        // --- 8) STUCK DETECTION (after movement) ---
-        // --- 4) DATABASE / HINT‑BASED TARGET UPDATES ---
         boolean targetUpdated = databaseManager.updateAITarget(
             delta,
             gameScreen.getCurrentHint(),
@@ -191,7 +167,7 @@ public class SmartAI implements Steerable<Vector2> {
             stuckTimer = 0f;
         }
 
-        // --- 2) SPEED BOOST UPDATE ---
+        //  SPEED BOOST UPDATE ---
         if (isSpeedBoostActive) {
             speedBoostTimer += delta;
             if (speedBoostTimer >= speedBoostDuration) {
@@ -201,7 +177,7 @@ public class SmartAI implements Steerable<Vector2> {
             }
         }
 
-        // --- 3) PATH REFRESH LOGIC ---
+        //  PATH REFRESH LOGIC ---
         pathRefreshTimer += delta;
         if ((pathNeedsRefresh || pathRefreshTimer > PATH_REFRESH_INTERVAL) && hasTarget) {
             snapToValidNode();
@@ -210,7 +186,7 @@ public class SmartAI implements Steerable<Vector2> {
             pathNeedsRefresh = false;
         }
 
-        // --- 5) FALLBACK TARGET SELECTION ---
+        // FALLBACK TARGET SELECTION
         if (!hasTarget && !targetUpdated) {
             switch (currentState) {
                 case ROAMING:
@@ -229,15 +205,15 @@ public class SmartAI implements Steerable<Vector2> {
             }
         }
 
-        // --- 6) MOVE ALONG CURRENT PATH ---
+        // MOVE ALONG CURRENT PATH
         moveAlongPath(delta, gameScreen);
 
-        // --- 7) UPDATE VISUAL FACING DIRECTION ---
+        // UPDATE VISUAL FACING DIRECTION
         updateDirection(delta);
     }
     private Vector2 clampInside(Vector2 pos) {
         // Grab map and tile dims from your graph
-        int mapW = mapGraph.getWidth();   // you may need to add getters in TiledMapGraph
+        int mapW = mapGraph.getWidth();
         int mapH = mapGraph.getHeight();
         int tW   = mapGraph.getTileWidth();
         int tH   = mapGraph.getTileHeight();
@@ -254,19 +230,12 @@ public class SmartAI implements Steerable<Vector2> {
 
     private void onStuck(GameScreen gameScreen) {
         repathAttempts++;
-
-        // 1) Snap or nudge off the exact same spot
-        //    Option A: just snap to nearest valid node:
         snapToValidNode();
-        //    Option B: nudgePositionOffNode();
-        // nudgePositionOffNode();
-
-        // 2) Clear the old path and target
         currentPath.clear();
         pathNeedsRefresh = false;
         hasTarget = false;
 
-        // 3) Pick a fresh goal
+        // Pick a fresh goal
         if (repathAttempts >= MAX_REPATH_ATTEMPTS) {
             repathAttempts = 0;
             findRandomTarget(gameScreen);
@@ -274,7 +243,7 @@ public class SmartAI implements Steerable<Vector2> {
             findExplorationTarget(gameScreen);
         }
 
-        // 4) Reset velocity again just in case
+        // Reset velocity again just in case
         linearVelocity.setZero();
         previousPosition.set(position);
     }
@@ -285,49 +254,49 @@ public class SmartAI implements Steerable<Vector2> {
      * Finds a path to the current target
      */
     private void findPathToTarget(GameScreen gameScreen) {
-        // 1) Bail out if there’s no target or the graph isn’t built yet
+        //  Bail out if there’s no target or the graph isn’t built yet
         if (!hasTarget || mapGraph == null) return;
 
-        // 2) If we’re already very close to the target, clear it and stop
+        // If we’re already very close to the target, clear it and stop
         if (position.dst(targetPosition) < 32f) {
             hasTarget = false;
             return;
         }
 
-        // 3) Early‐exit if we’re already on a valid, improving path
+        // Early‐exit if we’re already on a valid, improving path
         if (currentPath.getCount() > 0 && currentPathIndex < currentPath.getCount()) {
             if (position.dst(targetPosition) < lastDistanceToTarget) {
                 return;
             }
         }
 
-        // 4) Remember how far we were last time
+        // Remember how far we were last time
         lastDistanceToTarget = position.dst(targetPosition);
 
-        // 5) Clear out the old path & any debug visualization
+        // Clear out the old path & any debug visualization
         currentPath.clear();
         pathVisualizer.clear();
 
-        // 6) Find the start/end nodes on the grid
+        // Find the start/end nodes on the grid
         TiledNode startNode = mapGraph.getNodeAtWorldCoordinates(position.x, position.y);
         TiledNode endNode   = mapGraph.getNodeAtWorldCoordinates(targetPosition.x, targetPosition.y);
 
         if (startNode != null && endNode != null) {
-            // 7) Run A* search into currentPath
+            // Run A* search into currentPath
             MapHeuristic heuristic = new MapHeuristic();
             pathFinder.searchNodePath(startNode, endNode, heuristic, currentPath);
 
-            // 8) Reset index so we start at the first node
+            // Reset index so we start at the first node
             currentPathIndex = 0;
 
-            // 9) Build a simple debug list of world‐space points
+            // Build a simple debug list of world‐space points
             for (TiledNode node : currentPath) {
                 pathVisualizer.add(new Vector2(node.x, node.y));
             }
 
             System.out.println("Path found with " + currentPath.getCount() + " nodes");
         } else {
-            // 10) If either end is off‐grid, bail out
+            // If either end is off‐grid, bail out
             System.out.println("Path finding failed – invalid start or end node");
             hasTarget = false;
         }
@@ -356,21 +325,21 @@ public class SmartAI implements Steerable<Vector2> {
             desiredMove = (dy > 0) ? Direction.UP : Direction.DOWN;
         }
 
-        // 2) If we're not yet facing that way, just turn—no movement this frame
+        // If we're not yet facing that way, just turn—no movement this frame
         if (currentDirection != desiredMove) {
             currentDirection = desiredMove;
             linearVelocity.setZero();
             return;
         }
 
-        // 3) Now that we're facing correctly, compute our velocity vector
+        // Now that we're facing correctly, compute our velocity vector
         Vector2 moveVec = new Vector2(
             (currentDirection == Direction.RIGHT ? 1 : (currentDirection == Direction.LEFT ? -1 : 0)),
             (currentDirection == Direction.UP    ? 1 : (currentDirection == Direction.DOWN  ? -1 : 0))
         );
         linearVelocity.set(moveVec).scl(moveSpeed);
 
-        // 4) Attempt to move (with your walkability checks)
+        // Attempt to move (with your walkability checks)
         Vector2 oldPos     = new Vector2(position);
         Vector2 proposed   = oldPos.cpy().add(linearVelocity.x * delta, linearVelocity.y * delta);
         if (gameScreen.isWalkable(proposed)) {
@@ -392,11 +361,11 @@ public class SmartAI implements Steerable<Vector2> {
             }
         }
 
-        // 5) Clamp inside map bounds
+        // Clamp inside map bounds
         position.set(clampInside(position.cpy()));
 
 
-        // 6) If we got close enough, advance to the next node
+        // If we got close enough, advance to the next node
         if (position.dst(nextPos) < 5f) {
             currentPathIndex++;
             linearVelocity.setZero();
@@ -475,13 +444,6 @@ public class SmartAI implements Steerable<Vector2> {
             databaseManager.notifyTreasureCollected(treasurePosition);
         }
 
-        TiledNode currentNode = mapGraph.getNodeAtWorldCoordinates(position.x, position.y);
-        if (currentNode == null) {
-            // Try to find nearest valid node to snap to
-            // ...
-        }
-
-
         // If player collected the treasure, activate speed boost
         if (collectedByPlayer) {
             activateSpeedBoost();
@@ -538,7 +500,6 @@ public class SmartAI implements Steerable<Vector2> {
         }
         return null;
     }
-    // Add to SmartAI class
     private void snapToValidNode() {
         // Get the AI's current grid position
         TiledNode currentNode = mapGraph.getNodeAtWorldCoordinates(position.x, position.y);
@@ -677,10 +638,4 @@ public class SmartAI implements Steerable<Vector2> {
         return null;
     }
 
-    /**
-     * Returns the visualized path for debugging
-     */
-    public Array<Vector2> getPathVisualizer() {
-        return pathVisualizer;
-    }
 }

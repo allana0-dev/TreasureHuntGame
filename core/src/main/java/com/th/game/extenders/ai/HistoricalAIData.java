@@ -177,7 +177,6 @@ public class HistoricalAIData {
 
 
         // Select hotspots from each quadrant
-// Also, when selecting the first point in each quadrant, prefer points further from the center
         for (int q = 0; q < 4; q++) {
             List<Vector2> quadrantLocations = quadrants.get(q);
             if (quadrantLocations.isEmpty()) continue;
@@ -280,7 +279,6 @@ public class HistoricalAIData {
      * Updates the AI target based on hints and historical data
      */
     public boolean updateAITarget(float delta, String currentHint, List<Landmark> landmarks) {
-        // Priority 1: If we're in "hint mode", always keep the hint target alive
         if (isFollowingHint && hintLandmarkPosition != null) {
             return updateHintFollowing(delta);
         }
@@ -520,8 +518,6 @@ public class HistoricalAIData {
             }
             return true;
         }
-
-        // Second phase: Explore the area around the landmark
 
         // First try to target any database hotspots that are within our search radius
         if (lastHintSearchTime > 1.0f) {
