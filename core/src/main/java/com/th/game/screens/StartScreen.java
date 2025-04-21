@@ -29,9 +29,9 @@ import com.th.game.util.map.MapManager;
 import java.util.List;
 
 /**
- * The StartScreen class represents the main menu screen of the game.
- * It allows the player to configure settings: rounds, treasures, timer,
- * map choice, and hints, before starting the game.
+ * StartScreen shows the main menu where players set up a new game.
+ * Players can choose number of rounds, treasures, timer, map, and hints.
+ * Also provides buttons to start or quit the game, and a dialog for instructions.
  */
 public class StartScreen implements Screen {
     private final Main game;
@@ -41,25 +41,30 @@ public class StartScreen implements Screen {
     private final Music bgMusic;
     private Dialog instructionsDialog;
 
+    /**
+     * Constructor sets up all UI widgets, background, music, and input.
+     * @param game The main game instance, used for screen switching.
+     */
     public StartScreen(Main game) {
         this.game = game;
 
+        // Load VisUI skin once
         if (!VisUI.isLoaded()) {
             VisUI.load();
         }
         this.skin = VisUI.getSkin();
 
-        // Set up stage and input
+        // Prepare stage and input
         stage = new Stage(new ScreenViewport());
         Gdx.input.setInputProcessor(stage);
 
-        // Load sounds and music
+        // Load click sound and background music
         clickSound = Gdx.audio.newSound(Gdx.files.internal("sfx/buttonclick.ogg"));
-        bgMusic    = Gdx.audio.newMusic(Gdx.files.internal("music/startscreenmusic.ogg"));
+        bgMusic = Gdx.audio.newMusic(Gdx.files.internal("music/startscreenmusic.ogg"));
         bgMusic.setLooping(true);
         bgMusic.play();
 
-        // Background image with pan animation
+        // Animated background image
         Image background = new Image(new Texture(Gdx.files.internal("ui/startscreenbackground.png")));
         background.setFillParent(true);
         background.addAction(Actions.forever(
@@ -70,13 +75,13 @@ public class StartScreen implements Screen {
         ));
         stage.addActor(background);
 
-        // Root layout table
+        // Root layout table with padding
         Table root = new Table();
         root.setFillParent(true);
         root.pad(30);
         stage.addActor(root);
 
-        // Logo
+        // Animated logo at top
         Image logo = new Image(new Texture(Gdx.files.internal("ui/logo.png")));
         logo.setScaling(Scaling.fit);
         logo.setSize(300, 80);
@@ -88,12 +93,13 @@ public class StartScreen implements Screen {
         ));
         root.add(logo).padBottom(40).row();
 
+        // Form table for settings inputs
         Table form = new Table();
         form.defaults().pad(5).width(300).center();
 
         Color darkBrown = new Color(0.353f, 0.243f, 0.110f, 1f);
 
-        // Rounds
+        // Number of Rounds selector
         VisLabel roundsLabel = new VisLabel("Number of Rounds:");
         roundsLabel.setColor(darkBrown);
         form.add(roundsLabel).row();
@@ -106,7 +112,7 @@ public class StartScreen implements Screen {
         });
         form.add(rounds).row();
 
-        // Treasures
+        // Number of Treasures selector
         VisLabel treasuresLabel = new VisLabel("Number of Treasures:");
         treasuresLabel.setColor(darkBrown);
         form.add(treasuresLabel).row();
@@ -119,7 +125,7 @@ public class StartScreen implements Screen {
         });
         form.add(treasures).row();
 
-        // Timer
+        // Timer text field
         VisLabel timerLabel = new VisLabel("Timer (sec, 0 = off):");
         timerLabel.setColor(darkBrown);
         form.add(timerLabel).row();
@@ -136,15 +142,12 @@ public class StartScreen implements Screen {
         mapType.addListener(new ChangeListener() {
             @Override public void changed(ChangeListener.ChangeEvent event, Actor actor) {
                 clickSound.play();
-                // toggle custom map selector
-                boolean custom = mapType.getSelected().equals("Custom");
-                customMaps.setVisible(custom);
+                customMaps.setVisible(mapType.getSelected().equals("Custom"));
             }
         });
         form.add(mapType).row();
 
-        // Custom map selector (initially hidden)
-        // Assume MapManager.getAvailableMapNames() returns List<String>
+        // Custom map selector, initially hidden
         List<String> names = MapManager.getMapNames();
         customMaps.setItems(names.toArray(new String[0]));
         customMaps.setVisible(false);
@@ -155,7 +158,7 @@ public class StartScreen implements Screen {
         });
         form.add(customMaps).row();
 
-        // Hints enabled
+        // Enable hints checkbox
         VisCheckBox hintCheckBox = new VisCheckBox(" Enable Hints");
         hintCheckBox.setChecked(false);
         hintCheckBox.addListener(new ChangeListener() {
@@ -167,7 +170,7 @@ public class StartScreen implements Screen {
 
         root.add(form).padBottom(10).row();
 
-        // Instructions
+        // "How to Play" instructions button
         VisTextButton instrBtn = new VisTextButton("How to Play");
         instrBtn.pad(5f, 40f, 5f, 40f);
         instrBtn.addListener(new ChangeListener() {
@@ -178,7 +181,7 @@ public class StartScreen implements Screen {
         });
         root.add(instrBtn).padBottom(20).row();
 
-        // Start Game
+        // Start and Quit buttons layout
         VisTextButton startBtn = new VisTextButton("Start Game");
         startBtn.pad(20f, 40f, 20f, 40f);
         startBtn.addListener(new ChangeListener() {
@@ -194,35 +197,31 @@ public class StartScreen implements Screen {
                 } catch (NumberFormatException e) {
                     cfg.timerDuration = 60;
                 }
-                cfg.gameMode      = cfg.timerDuration > 0
+                cfg.gameMode = cfg.timerDuration > 0
                     ? GameSettings.GameMode.TIMER
                     : GameSettings.GameMode.FIRST_TO_HALF;
 
-                // map settings
                 if (mapType.getSelected().equals("Custom")) {
                     cfg.mapType = GameSettings.MapType.STORED;
                     cfg.selectedMapName = customMaps.getSelected();
                 } else {
                     cfg.mapType = GameSettings.MapType.RANDOM;
                 }
-
                 cfg.hintsEnabled  = hintCheckBox.isChecked();
                 cfg.playerRoundsWon = cfg.aiRoundsWon = 0;
                 game.setScreen(new GameScreen(game, cfg));
             }
         });
 
-        // Quit Game Button
         VisTextButton quitBtn = new VisTextButton("Quit Game");
         quitBtn.pad(20f, 40f, 20f, 40f);
         quitBtn.addListener(new ChangeListener() {
             @Override public void changed(ChangeListener.ChangeEvent event, Actor actor) {
                 clickSound.play();
-                Gdx.app.exit();  // This will close the application
+                Gdx.app.exit();
             }
         });
 
-        // Add the buttons next to each other
         Table buttonTable = new Table();
         buttonTable.add(startBtn).pad(10).fillX();
         buttonTable.add(quitBtn).pad(10).fillX();
@@ -231,30 +230,78 @@ public class StartScreen implements Screen {
         createInstructionsDialog();
     }
 
+    /**
+     * Creates the dialog that shows how to play the game.
+     */
     private void createInstructionsDialog() {
-        instructionsDialog = new Dialog("",skin);
+        instructionsDialog = new Dialog("How to Play", skin);
         instructionsDialog.pad(40f);
         instructionsDialog.text(
             "🎮 How to Play:\n\n" +
                 "- Arrow keys to move\n" +
                 "- Press [SPACE] to collect when near\n" +
-                "- Treasures are invisible until nearby\n" +
-                "- Move fast, compete vs AI!"
+                "- Treasures appear only when nearby\n" +
+                "- Race the AI to collect more treasures!"
         );
         instructionsDialog.button("Close");
     }
 
+    /**
+     * Displays the instructions dialog on screen.
+     */
     private void showInstructions() {
         instructionsDialog.show(stage);
     }
 
-    @Override public void show() {}
-    @Override public void render(float delta) { stage.act(delta); stage.draw(); }
-    @Override public void resize(int width, int height) { stage.getViewport().update(width, height, true); }
-    @Override public void pause() {}
-    @Override public void resume() {}
-    @Override public void hide() {}
-    @Override public void dispose() {
+    /**
+     * Called when this screen becomes the active screen; no-op.
+     */
+    @Override
+    public void show() { }
+
+    /**
+     * Renders the stage every frame.
+     * @param delta Time in seconds since last frame
+     */
+    @Override
+    public void render(float delta) {
+        stage.act(delta);
+        stage.draw();
+    }
+
+    /**
+     * Called when the screen size changes; updates viewport.
+     * @param width New screen width
+     * @param height New screen height
+     */
+    @Override
+    public void resize(int width, int height) {
+        stage.getViewport().update(width, height, true);
+    }
+
+    /**
+     * Called when the application is paused; no-op.
+     */
+    @Override
+    public void pause() { }
+
+    /**
+     * Called when the application is resumed; no-op.
+     */
+    @Override
+    public void resume() { }
+
+    /**
+     * Called when this screen is no longer active; no-op.
+     */
+    @Override
+    public void hide() { }
+
+    /**
+     * Releases all resources when the screen is destroyed.
+     */
+    @Override
+    public void dispose() {
         stage.dispose();
         VisUI.dispose();
         clickSound.dispose();
