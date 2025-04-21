@@ -3,6 +3,7 @@ package com.th.game;
 import com.badlogic.gdx.Game;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
+import com.th.game.screens.StartScreen;
 
 public class Main extends Game {
     @Override

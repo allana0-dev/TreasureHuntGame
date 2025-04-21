@@ -23,8 +23,7 @@ import com.th.game.database.*;
 import com.th.game.entities.*;
 import com.th.game.util.*;
 import com.th.game.util.map.MapManager;
-
-
+import com.th.game.util.settings.GameSettings;
 
 
 public class GameScreen implements Screen {

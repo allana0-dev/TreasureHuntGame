@@ -1,4 +1,4 @@
-package com.th.game;
+package com.th.game.util.settings;
 
 import java.util.ArrayList;
 import java.util.List;

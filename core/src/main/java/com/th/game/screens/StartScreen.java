@@ -1,4 +1,4 @@
-package com.th.game;
+package com.th.game.screens;
 
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Screen;
@@ -22,8 +22,9 @@ import com.kotcrab.vis.ui.widget.VisLabel;
 import com.kotcrab.vis.ui.widget.VisSelectBox;
 import com.kotcrab.vis.ui.widget.VisTextButton;
 import com.kotcrab.vis.ui.widget.VisTextField;
+import com.th.game.util.settings.GameSettings;
+import com.th.game.Main;
 import com.th.game.util.map.MapManager;
-import com.th.game.screens.GameScreen;
 
 import java.util.List;
 

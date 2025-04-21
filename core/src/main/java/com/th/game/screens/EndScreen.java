@@ -1,4 +1,4 @@
-package com.th.game;
+package com.th.game.screens;
 
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Screen;
@@ -9,6 +9,8 @@ import com.badlogic.gdx.scenes.scene2d.ui.Skin;
 import com.badlogic.gdx.scenes.scene2d.ui.Table;
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
 import com.badlogic.gdx.utils.viewport.ScreenViewport;
+import com.th.game.util.settings.GameSettings;
+import com.th.game.Main;
 
 public class EndScreen implements Screen {
     private Main game;
@@ -31,7 +33,7 @@ public class EndScreen implements Screen {
         else
             result = "The Match is a Tie!";
 
-        
+
 
         // Use default style instead of "title"
         Label titleLabel = new Label("Game Over", skin);
